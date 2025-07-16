@@ -25,6 +25,13 @@ const Elements = {
 
     backupProgress: document.getElementById('backupProgress'),
     backupUsage: document.getElementById('backupUsage'),
+
+    homeUsage: document.getElementById('homeUsage'),
+    
+    deviceUsed: document.getElementById('deviceUsed'),
+    deviceFree: document.getElementById('deviceFree'),
+    deviceTotal: document.getElementById('deviceTotal'),
+
     devicesContainer: document.getElementById('devicesContainer'),
     selectedDevicePath: document.getElementById('selectedDevicePath'),
     selectedDeviceStats: document.getElementById('selectedDeviceStats'),
@@ -35,6 +42,17 @@ const Elements = {
     devicesFilesystem: document.getElementById('devicesFilesystem'),
     devicesModel: document.getElementById('devicesModel'),
     devicesUsageBar: document.getElementById('devicesUsageBar'),
+
+
+    imagesCount: document.getElementById('imagesCount'),
+    documentsCount: document.getElementById('documentsCount'),
+    videosCount: document.getElementById('videosCount'),
+    otherCount: document.getElementById('otherCount'),
+
+    imagesSize: document.getElementById('imagesSize'),
+    documentsSize: document.getElementById('documentsSize'),
+    videosSize: document.getElementById('videosSize'),
+    otherSize: document.getElementById('otherSize'),
 
     logContainer: document.getElementById('logContainer'),
     leftSidebar: document.getElementById('leftSidebar'),
@@ -405,18 +423,53 @@ const BackupManager = {
             const displayLocation = data.location.replace(/\\/g, '/').replace(/\/$/, '');
             Elements.backupLocation.textContent = displayLocation;
             sourceLocation.textContent = data.users_home_path;  // Users $USER
+            
+            // User's home(Hdd/Ssd) usage
+            homeUsage.textContent = `${data.home_human_used} used of ${data.home_human_total} (${data.home_percent_used}% used)`;
+            // homeUsage.className = 'h-2 rounded-full';
+            // homeUsage.classList.add(Utils.getUsageColorClass(data.home_percent_used));
 
+            // Backup device info
             deviceMountPoint.textContent = displayLocation;
             Elements.backupProgress.style.width = `${data.percent_used}%`;
             Elements.backupUsage.textContent = 
                 `${data.human_used} used of ${data.human_total} (${data.percent_used}% used)`;
-            
+
+            Elements.deviceUsed.textContent = `${data.home_human_used}`;
+            Elements.deviceFree.textContent = `${data.home_human_free}`;
+            Elements.deviceTotal.textContent = `${data.home_human_total}`;
+
             Elements.backupProgress.className = 'h-2 rounded-full';
             Elements.backupProgress.classList.add(Utils.getUsageColorClass(data.percent_used));
             
             // Update the UI with the devices used space
             devicesUsageBar.style.width = `${data.percent_used}%`;  // Used space bar
+            devicesUsageBar.className = 'h-2 rounded-full';  // Reset class
             devicesUsageBar.classList.add(Utils.getUsageColorClass(data.percent_used));  // Determines color
+            
+            // Update image count from summary if available
+            if (data.summary && data.summary.categories) {
+                const imagesCategory = data.summary.categories.find(cat => cat.name === "Image");
+                const documentsCategory = data.summary.categories.find(cat => cat.name === "Document");
+                const videosCategory = data.summary.categories.find(cat => cat.name === "Video");
+                const otherCategory = data.summary.categories.find(cat => cat.name === "Others");
+                // Images
+                if (imagesCategory)
+                    imagesCount.textContent = `${imagesCategory.count.toLocaleString()} files`;
+                    imagesSize.textContent = `${imagesCategory.size_str}`;
+                // Documents
+                if (documentsCategory)
+                    documentsCount.textContent = `${documentsCategory.count.toLocaleString()} files`;
+                    documentsSize.textContent = `${documentsCategory.size_str}`;
+                // Videos                   
+                if (videosCategory)
+                    videosCount.textContent = `${videosCategory.count.toLocaleString()} files`;
+                    videosSize.textContent = `${videosCategory.size_str}`;
+                // Other files
+                if (otherCategory)
+                    otherCount.textContent = `${otherCategory.count.toLocaleString()} files`;
+                    otherSize.textContent = `${otherCategory.size_str.toLocaleString()} files`;
+            }
         } else {
             Elements.backupLocation.textContent = "Error";
             Elements.backupUsage.textContent = `Error: ${data.error || 'Unknown error'}`;

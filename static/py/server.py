@@ -342,7 +342,7 @@ class SERVER:
 		return f"{self.create_base_folder()}/.starred_files.json"
 
 	# Hidden files location
-	def get_summary_filename(self) -> str: 
+	def get_summary_filename(self) -> str:
 		return f"{self.create_base_folder()}/{self.SUMMARY_FILENAME}"
 
 	def get_log_file_path(self) -> str:

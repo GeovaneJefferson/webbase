@@ -235,7 +235,26 @@ class BackupService:
                     GLib.idle_add(self._update_left_panel_visibility)
                 except Exception as e:
                     print("Socket error:", e)
-                    
+
+    ##########################################################################
+	# Summary and backup summary
+	##########################################################################
+    def get_backup_summary(self) -> dict:
+        try:
+            summary_file = server.get_summary_filename()
+            if os.path.exists(summary_file):
+                with open(summary_file, 'r') as f:
+                    return json.load(f)
+            else:
+                return {}  # Or return None or raise an exception depending on your needs
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON from backup summary: {e}")
+            return {}
+        console_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(message)s')
+        console_handler.setFormatter(formatter)
+          
+
 @app.route('/')
 def index():
     return render_template('web.html')
@@ -305,6 +324,8 @@ def backup_status():
 
 @app.route('/api/backup/usage')
 def backup_usage():
+    backup_service = BackupService(CONFIG_PATH)
+
     try:
         config = configparser.ConfigParser()
         config.read(CONFIG_PATH)
@@ -318,6 +339,7 @@ def backup_usage():
             })
             
         location = config.get('DEVICE_INFO', 'path')
+        homeLocation = os.path.expanduser('~')  # Get user's hdd/ssd main usage
         
         if not location or not os.path.exists(location):
             return jsonify({
@@ -326,11 +348,17 @@ def backup_usage():
                 'user_action_required': True,
                 'location': location
             })
-        
+
+
         # Get disk usage
         total, used, free = shutil.disk_usage(location)
         percent_used = (used / total) * 100 if total > 0 else 0
         
+        # Get disk usage
+        home_total, home_used, home_free = shutil.disk_usage(homeLocation)
+        home_percent_used = (home_used / home_total) * 100 if home_total > 0 else 0
+
+        # Return the usage information
         return jsonify({
             'success': True,
             'location': location,
@@ -338,8 +366,13 @@ def backup_usage():
             'human_used': bytes_to_human(used),
             'human_total': bytes_to_human(total),
             'human_free': bytes_to_human(free),
+            'home_human_used': bytes_to_human(home_used),
+            'home_human_total': bytes_to_human(home_total),
+            'home_human_free': bytes_to_human(home_free),
+            'home_percent_used': round(home_percent_used, 1),
             'users_home_path': os.path.expanduser('~'),
-        })
+            'summary': backup_service.get_backup_summary()
+        })        
         
     except Exception as e:
         app.logger.error(f"Error in backup_usage: {str(e)}")
