@@ -42,20 +42,29 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from threading import Thread
 from static.py.server import *
+from static.py.search_handler import SeachHandler
 from storage_util import get_storage_info, get_all_storage_devices
+from flask_sock import Sock
 
 app = Flask(__name__)
+sock = Sock(app)
+
+server = SERVER()
+
+HOME_USERNAME: str = os.path.join(os.path.expanduser("~"))
+USERNAME: str = getpass.getuser()
+
 
 ################################################################################
 # APP SETTINGS
 ################################################################################
 DEV_NAME: str = "Geovane J."
-GITHUB_PAGE: str = "https://github.com/GeovaneJefferson/dataguardian"
-GITHUB__ISSUES: str = "https://github.com/GeovaneJefferson/dataguardian/issues"
+GITHUB_PAGE: str = "https://github.com/GeovaneJefferson/timemachine"
+GITHUB__ISSUES: str = "https://github.com/GeovaneJefferson/timemachine/issues"
 COPYRIGHT: str = "Copyright © 2025 Geovane J.\n\n This application comes with absolutely no warranty. See the GNU General Public License, version 3 or later for details."
-ID: str = "io.github.geovanejefferson.dataguardian"
-APP_NAME: str = "Data Guardian"
-# APP_NAME_CLOSE_LOWER: str = "dataguardian"
+ID: str = "io.github.geovanejefferson.timemachine"
+APP_NAME: str = "Timemachine"
+# APP_NAME_CLOSE_LOWER: str = "timemachine"
 APP_NAME_CLOSE_LOWER: str = APP_NAME.lower().replace(" ", "")
 APP_VERSION: str = "v0.1 dev"
 SUMMARY_FILENAME: str = ".backup_summary.json"
@@ -74,30 +83,60 @@ BACKUP_STATUS = {
 }
 
 # Configuration
-LOG_FILE_PATH: str = os.path.expanduser('~/.dataguardian.log') 
+LOG_FILE_PATH: str = os.path.expanduser('~/.timemachine.log') 
 DAEMON_PATH: str = os.path.join(os.path.dirname(__file__), 'daemon.py') # Assuming daemon.py is in the same directory as app.py
 MAIN_BACKUP_LOCATION: str = '.main_backup'
 
 # Flatpak
-DAEMON_PY_LOCATION: str = os.path.join('/app/share/dataguardian/src', 'daemon.py')
-DAEMON_PID_LOCATION: str = os.path.join(os.path.expanduser("~"), '.var', 'app', ID, 'config', 'daemon.pid')
+DAEMON_PY_LOCATION: str = os.path.join('/app/share/timemachine/src', 'daemon.py')
+DAEMON_PID_LOCATION: str = os.path.join(HOME_USERNAME, '.var', 'app', ID, 'config', 'daemon.pid')
 
 SOCKET_PATH = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), f"{APP_NAME_CLOSE_LOWER}-ui.sock")
 # Concurrency settings for copying files
 # Default, can be adjusted based on system resources and current load
 DEFAULT_COPY_CONCURRENCY = 2
+PAGE_SIZE: int = 17  # Number of results per page
+
+MAIN_BACKUP_FOLDER: str = f"/media/{USERNAME}/{server.BACKUP_FOLDERS_NAME}/{APP_NAME_CLOSE_LOWER}/{BACKUPS_LOCATION_DIR_NAME}/{MAIN_BACKUP_LOCATION}"
+BACKUP_FOLDER_NAME: str = f"/media/{USERNAME}/{server.BACKUP_FOLDERS_NAME}/{APP_NAME_CLOSE_LOWER}/{BACKUPS_LOCATION_DIR_NAME}"
 
 server = SERVER()
 message_queue = Queue()
 
+# A list to hold all connected WebSocket clients
+ws_clients = []
+
+search_handler = SeachHandler()
+
 class BackupService:
-    def __init__(self, config_path):
-        self.config_path = config_path
+    def __init__(self):
+        self.config_path = CONFIG_PATH
         self.config = configparser.ConfigParser()
         self.load_config()
         
         self.currently_scanning_top_level_folder_name = None # Track which top-level folder is scanning
         self.transfer_rows = {} # To track active transfers and their Gtk.ListBoxRow widgets
+
+        # DRIVER Section
+        self.DRIVER_NAME = server.get_database_value(
+            section='DRIVER',
+            option='driver_name')
+
+        self.DRIVER_LOCATION = server.get_database_value(
+            section='DRIVER',
+            option='driver_location')
+
+        self.AUTOMATICALLY_BACKUP = server.get_database_value(
+            section='BACKUP',
+            option='automatically_backup')
+
+        self.BACKING_UP = server.get_database_value(
+            section='BACKUP',
+            option='backing_up')
+        
+        # self.MAIN_BACKUP_FOLDER: str = f"{self.DRIVER_LOCATION}/{APP_NAME_CLOSE_LOWER}/{BACKUPS_LOCATION_DIR_NAME}/{MAIN_BACKUP_LOCATION}"
+        self.documents_path: str = os.path.expanduser(MAIN_BACKUP_FOLDER)
+        # self.scan_files_folder_threaded()  # Must be after document_path
         
         threading.Thread(target=self.start_server, daemon=True).start()  # Start the socket server in a separate thread
     
@@ -166,30 +205,49 @@ class BackupService:
 	##########################################################################
     def start_server(self):
         # Make sure the directory for the socket exists
-        os.makedirs(os.path.dirname(SOCKET_PATH), exist_ok=True)
+        os.makedirs(os.path.dirname(server.SOCKET_PATH), exist_ok=True)
 
         # Remove old socket if it exists
-        if os.path.exists(SOCKET_PATH):
-            os.remove(SOCKET_PATH)
+        if os.path.exists(server.SOCKET_PATH):
+            try:
+                os.remove(server.SOCKET_PATH)
+            except OSError as e:
+                if e.errno != errno.ENOENT:
+                    raise
+            except OSError as e:
+                pass
 
         # Create and bind the socket once
         server_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        server_socket.bind(SOCKET_PATH)
+        server_socket.bind(server.SOCKET_PATH)
         server_socket.listen(5)
-        logging.info(f"Listening on UNIX socket {SOCKET_PATH}...")
+        logging.info(f"Listening on UNIX socket {server.SOCKET_PATH}...")
 
         while True:
             conn, _ = server_socket.accept()
-            threading.Thread(target=self.handle_client, args=(conn, message_queue), daemon=True).start()
-    
+            threading.Thread(target=self.handle_client, args=(conn,), daemon=True).start()
+
     def handle_client(self, conn):
         with conn:
             while True:
                 data = conn.recv(1024)
                 if not data:
                     break
+                            
                 try:
-                    msg = json.loads(data.decode("utf-8").strip())
+                    decoded_data: str = None
+
+                    # First check if data needs decoding (it's bytes)
+                    if isinstance(data, bytes):
+                        decoded_data = data.decode('utf-8')
+                    else:
+                        decoded_data = data
+                    
+                    # Skip empty messages
+                    if not decoded_data.strip():
+                        continue
+
+                    msg = json.loads(decoded_data.strip())
                     file_id = msg.get("id")  # must be unique per file (e.g., hash or relative path)
                     filename = msg.get("filename", "unknown")
                     size = msg.get("size", "0 KB")
@@ -210,15 +268,15 @@ class BackupService:
                                 else:
                                     self.current_daemon_state = "idle"
                             # If transfers are active, state will become "copying" from transfer messages
-                        GLib.idle_add(self.update_scanning_folder_display, folder_being_scanned)
+                        # GLib.idle_add(self.update_scanning_folder_display, folder_being_scanned)
                     elif msg_type == "transfer_progress": # Explicitly handle transfer progress
                         self.current_daemon_state = "copying"
-                        GLib.idle_add(self.update_or_create_transfer, file_id, filename, size, eta, progress)
+                        # GLib.idle_add(self.update_or_create_transfer, file_id, filename, size, eta, progress)
                         # When transfers start, scanning of current top-level folder is done or all scans are done.
-                        GLib.idle_add(self.update_scanning_folder_display, None) # Hide scanning card
+                        # GLib.idle_add(self.update_scanning_folder_display, None) # Hide scanning card
                     elif msg_type == "summary_updated":
-                        GLib.idle_add(self._refresh_left_sidebar_summary_and_usage)
-                        GLib.idle_add(self.update_scanning_folder_display, None) # Ensure scanning display is cleared
+                        # GLib.idle_add(self._refresh_left_sidebar_summary_and_usage)
+                        # GLib.idle_add(self.update_scanning_folder_display, None) # Ensure scanning display is cleared
                         # If no transfers are active, transition to idle or interrupted
                         if not self.transfer_rows:
                             if os.path.exists(server.get_interrupted_main_file()):
@@ -229,35 +287,75 @@ class BackupService:
                         # This message type is no longer handled here for UI-initiated restores
                         pass
 
-                    if current_state_before_message != self.current_daemon_state:
-                        GLib.idle_add(self._update_status_icon_display)
+                    # if current_state_before_message != self.current_daemon_state:
+                    #     GLib.idle_add(self._update_status_icon_display)
 
-                    GLib.idle_add(self._update_left_panel_visibility)
+                    # Put the received message into the queue for WebSocket clients
+                    for client in ws_clients:
+                        client.send(decoded_data)
+
+
+                    # GLib.idle_add(self._update_left_panel_visibility)
+                except json.JSONDecodeError as e:
+                    print(f"Invalid JSON received: {decoded_data}")
+                    continue  # Skip this message but keep connection alive
                 except Exception as e:
-                    print("Socket error:", e)
+                    print(f"Socket error: {e}")
+                    # break  # Break on other errors
+
+    # def populate_results(self, results) -> list:
+    #     # Populate item, name, type, size etc.
+    #     return results
 
     ##########################################################################
-	# Summary and backup summary
+	# Open file location
 	##########################################################################
-    def get_backup_summary(self) -> dict:
-        try:
-            summary_file = server.get_summary_filename()
-            if os.path.exists(summary_file):
-                with open(summary_file, 'r') as f:
-                    return json.load(f)
-            else:
-                return {}  # Or return None or raise an exception depending on your needs
-        except json.JSONDecodeError as e:
-            logging.error(f"Error decoding JSON from backup summary: {e}")
-            return {}
-        console_handler.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s - %(message)s')
-        console_handler.setFormatter(formatter)
-          
+    def on_open_location_clicked(self, file_path_from_button):
+        if file_path_from_button:
+            folder_path = os.path.dirname(file_path_from_button)
+            
+            if not os.path.isdir(folder_path):
+                print(f"Error: The parent directory does not exist or is not accessible: {folder_path}")
+                return
 
+            self._open_location(folder_path)
+
+    def _open_file(self, file_path):
+        """Fallback to xdg-open if Gio methods fail for opening a file."""
+        try:
+            sub.Popen(["xdg-open", file_path])
+        except Exception as e_xdg:
+            print(f"Failed to open file {file_path} with xdg-open: {e_xdg}")
+
+    def _open_location(self, folder_path):
+        """Fallback to xdg-open if Gio methods fail."""
+        try:
+            sub.Popen(["xdg-open", folder_path])
+        except Exception as e_xdg:
+            print(f"Failed to open folder {folder_path} with xdg-open: {e_xdg}")
+
+
+##########################################################################
+# APIS
+##########################################################################
 @app.route('/')
 def index():
     return render_template('web.html')
+
+@sock.route('/ws')
+def ws(ws_client):
+    """WebSocket endpoint to stream messages to the frontend."""
+    print("WebSocket client connected.")
+    ws_clients.append(ws_client)
+    try:
+        while True:
+            # This loop keeps the connection open. Messages are sent from the UNIX socket handler.
+            data = ws_client.receive() # This will block until a message is received or the client disconnects
+    except Exception as e:
+        print(f"WebSocket client disconnected or error: {e}")
+    finally:
+        ws_clients.remove(ws_client)
+        print("WebSocket client disconnected.")
 
 @app.route('/api/config', methods=['GET'])
 def get_config():
@@ -300,32 +398,8 @@ def update_config():
     
     return jsonify({'status': 'success'})
 
-@app.route('/api/backup/start', methods=['POST'])
-def start_backup():
-    if BACKUP_STATUS['running']:
-        return jsonify({'error': 'Backup already running'}), 400
-        
-    backup_service = BackupService(CONFIG_PATH)
-    thread = Thread(target=backup_service.perform_backup)
-    thread.start()
-    
-    return jsonify({'status': 'Backup started'})
-
-@app.route('/api/backup/pause', methods=['POST'])
-def pause_backup():
-    # You'll need to implement actual pausing logic
-    # This is a placeholder - you might need to kill the rsync process
-    BACKUP_STATUS['running'] = False
-    return jsonify({'status': 'Backup paused'})
-
-@app.route('/api/backup/status', methods=['GET'])
-def backup_status():
-    return jsonify(BACKUP_STATUS)
-
 @app.route('/api/backup/usage')
 def backup_usage():
-    backup_service = BackupService(CONFIG_PATH)
-
     try:
         config = configparser.ConfigParser()
         config.read(CONFIG_PATH)
@@ -339,7 +413,7 @@ def backup_usage():
             })
             
         location = config.get('DEVICE_INFO', 'path')
-        homeLocation = os.path.expanduser('~')  # Get user's hdd/ssd main usage
+        home_location = os.path.expanduser('~')  # Get user's hdd/ssd main usage
         
         if not location or not os.path.exists(location):
             return jsonify({
@@ -355,9 +429,31 @@ def backup_usage():
         percent_used = (used / total) * 100 if total > 0 else 0
         
         # Get disk usage
-        home_total, home_used, home_free = shutil.disk_usage(homeLocation)
+        home_total, home_used, home_free = shutil.disk_usage(home_location)
         home_percent_used = (home_used / home_total) * 100 if home_total > 0 else 0
-
+        
+        ##########################################################################
+        # Summary and backup summary
+        ##########################################################################
+        def get_backup_summary() -> dict:
+            try:
+                summary_file = server.get_summary_filename()
+                if not os.path.exists(summary_file):
+                    print(f"Summary file not found: {summary_file}")
+                    return {}
+                print("Summary:", summary_file)
+                if os.path.exists(summary_file):
+                    with open(summary_file, 'r') as f:
+                        return json.load(f)
+                else:
+                    return {}  # Or return None or raise an exception depending on your needs
+            except json.JSONDecodeError as e:
+                logging.error(f"Error decoding JSON from backup summary: {e}")
+                return {}
+            console_handler.setLevel(logging.INFO)
+            formatter = logging.Formatter('%(asctime)s - %(message)s')
+            console_handler.setFormatter(formatter)
+          
         # Return the usage information
         return jsonify({
             'success': True,
@@ -371,9 +467,8 @@ def backup_usage():
             'home_human_free': bytes_to_human(home_free),
             'home_percent_used': round(home_percent_used, 1),
             'users_home_path': os.path.expanduser('~'),
-            'summary': backup_service.get_backup_summary()
+            'summary': get_backup_summary()
         })        
-        
     except Exception as e:
         app.logger.error(f"Error in backup_usage: {str(e)}")
         return jsonify({
@@ -483,7 +578,7 @@ def get_raw_logs():
             LOG_FILE_PATH,
             mimetype='text/plain',
             as_attachment=True,
-            download_name='dataguardian.log'
+            download_name='timemachine.log'
         )
     except Exception as e:
         return jsonify({
@@ -522,11 +617,10 @@ def clear_logs():
 def get_current_device():
     """Get currently selected backup device"""
     try:
-        backup_service = BackupService(CONFIG_PATH)
-        return jsonify({
-            'success': True,
-            'device_path': backup_service.config.get('DRIVER', 'driver_location', fallback=None)
-        })
+        config = configparser.ConfigParser()
+        config.read('config/config.conf') # Ensure correct path
+        device_path = config.get('DRIVER', 'driver_location', fallback=None)
+        return jsonify({'success': True, 'device_path': device_path})
     except Exception as e:
         return jsonify({
             'success': False,
@@ -592,6 +686,7 @@ def scan_devices():
     """Scan and return all available storage devices"""
     try:
         devices = get_all_storage_devices()  # storage_util.py
+        print(devices)
         app.logger.info(f"Found {len(devices)} storage devices")
         return jsonify({
             'success': True,
@@ -668,11 +763,11 @@ def get_watched_folders():
                 'last_activity': datetime.now().isoformat(),
                 'destination': os.path.join(
                     config.get('DEVICE_INFO', 'path', fallback='/backups'),
-                    'dataguardian',
+                    'timemachine',
                     'backups',
                     MAIN_BACKUP_LOCATION,
                     item
-                ), # Adding "dataguardian/backups/.main_backup" to destination path
+                ), # Adding "timemachine/backups/.main_backup" to destination path
                 'is_excluded': is_excluded,
                 'excluded_subfolders': [
                     os.path.relpath(sub, item_path) 
@@ -966,6 +1061,284 @@ def call_daemon_script():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+##############################################################################
+# HANDLER SEARCH FOR FILES
+##############################################################################
+@app.route('/api/search', methods=['GET'])
+def search_files():
+    query = request.args.get('query', '').strip().lower()
+    if not query:
+        return jsonify(files=[])
+    try:
+        print(f"API received query: {query}")
+        # Instead of handling the query here, we'll rely on the client-side
+        # to manage the cached results after the initial scan.
+        search_results = search_handler.perform_search(query)
+        return jsonify({
+            'files': search_results, # Return the actual search results
+            'total': len(search_handler.files)  # Return the total number of files
+        })
+    except Exception as e:
+        app.logger.error(f"Error during file search: {e}", exc_info=True)
+        return jsonify(error="An error occurred during search."), 500
+
+##############################################################################
+# HANDLER FILES ACTIONS (OPEN, OPEN LOCATION ETC.)
+##############################################################################
+@app.route('/api/open-location', methods=['POST'])
+def open_location():
+    try:
+        data = request.get_json()
+        file_path: str = data.get('file_path')
+
+        if not file_path:
+            return jsonify({'success': False, 'error': 'No file_path provided'}), 400
+
+        # Get item dir location
+        file_path = '/'.join(file_path.split('/')[:-1])
+
+        # Security precaution: Sanitize or validate the path if it's coming from user input
+        # For a local application, this might be less critical if you trust the client,
+        # but always good practice.
+
+        if os.name == 'nt':  # Windows
+            os.startfile(file_path)
+        elif os.uname().sysname == 'Darwin':  # macOS
+            sub.run(['open', file_path])
+        else:  # Linux/Unix
+            sub.run(['xdg-open', file_path]) # or 'gnome-open', 'kde-open'
+
+        return jsonify({'success': True, 'message': f'Attempted to open: {file_path}'}), 200
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/open-file', methods=['POST'])
+def open_file():
+    try:
+        data = request.get_json()
+        file_path = data.get('file_path')
+
+        if not file_path:
+            return jsonify({'success': False, 'error': 'No file_path provided'}), 400
+
+        # Security precaution: Validate file_path if coming from untrusted sources
+        # Ensure it's not trying to execute dangerous commands
+
+        # Commands to open the file itself with its default application
+        if os.name == 'nt':  # Windows
+            os.startfile(file_path) # This opens the file itself
+        elif os.uname().sysname == 'Darwin':  # macOS
+            sub.run(['open', file_path]) # This opens the file itself
+        else:  # Linux/Unix
+            sub.run(['xdg-open', file_path]) # This opens the file itself
+
+        return jsonify({'success': True, 'message': f'Attempted to open file: {file_path}'}), 200
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/restore-file', methods=['POST'])
+def restore_file():
+    try:
+        data = request.get_json()
+        file_path = data.get('file_path')
+
+        if not file_path:
+            return jsonify({'success': False, 'error': 'No file_path provided'}), 400
+
+        # Commands to restore the file
+        if os.name == 'nt':  # Windows
+            # TODO: Implement Windows restoration logic
+            print(f"Windows restoration for {file_path} is not yet implemented.")
+            return jsonify({'success': False, 'error': 'Windows restoration not implemented'}), 501
+        elif os.uname().sysname == 'Darwin':  # macOS
+            # TODO: Implement macOS restoration logic
+            print(f"macOS restoration for {file_path} is not yet implemented.")
+            return jsonify({'success': False, 'error': 'macOS restoration not implemented'}), 501
+        else:  # Linux/Unix
+            abs_file_to_restore_path = os.path.abspath(file_path)
+            main_backup_abs_path = os.path.abspath(MAIN_BACKUP_FOLDER)
+            incremental_backups_abs_path = os.path.abspath(BACKUP_FOLDER_NAME)
+
+            rel_path = None
+            if abs_file_to_restore_path.startswith(main_backup_abs_path):
+                rel_path = os.path.relpath(abs_file_to_restore_path, main_backup_abs_path)
+            elif abs_file_to_restore_path.startswith(incremental_backups_abs_path):
+                temp_rel_path = os.path.relpath(abs_file_to_restore_path, incremental_backups_abs_path)
+                # Expected structure: DATE/TIME/actual/path/to/file
+                parts = temp_rel_path.split(os.sep)
+                if len(parts) > 2: # Ensure there's at least DATE/TIME and then the actual relative path
+                    rel_path = os.path.join(*parts[2:])
+                else:
+                    print(f"Error: Could not determine relative path for incremental backup: {file_path}")
+                    # Return an error response here
+                    return jsonify({'success': False, 'error': 'Could not determine relative path for incremental backup'}), 400
+            else:
+                print(f"Error: File path '{file_path}' is not within known backup locations: '{main_backup_abs_path}' or '{incremental_backups_abs_path}'")
+                # Return an error response here
+                return jsonify({'success': False, 'error': 'File not within known backup locations'}), 400
+
+            destination_path = os.path.join(HOME_USERNAME, rel_path)
+
+            def do_restore_async(src, dst):
+                try:
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    total_size = os.path.getsize(src)
+                    copied = 0
+                    chunk_size = 1024 * 1024  # 1MB
+
+                    with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
+                        while True:
+                            chunk = fsrc.read(chunk_size)
+                            if not chunk: break
+                            fdst.write(chunk)
+                            copied += len(chunk)
+                            # You could send progress updates here via WebSockets/SSE if implemented
+                            # For now, just print to console
+                            # progress = copied / total_size if total_size > 0 else 1.0
+                            # print(f"Restoring {os.path.basename(src)}: {progress*100:.2f}%")
+
+                    print(f"Restored {src} to {dst}")
+                    shutil.copystat(src, dst)
+                    # No jsonify return here, as this is in a separate thread
+                    # If you need frontend feedback, use WebSockets/SSE from here
+                except Exception as e:
+                    print(f"Error restoring file (async thread): {e}")
+                    # Log error, potentially send error update via WebSockets/SSE
+            
+            # Start the restoration in a background thread
+            threading.Thread(target=do_restore_async, args=(file_path, destination_path), daemon=True).start()
+
+            # IMPORTANT: Return an immediate response to the client
+            return jsonify({'success': True, 'message': 'File restoration process started in background.'}), 202 # 202 Accepted
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+##############################################################################
+# READ CONTENT
+##############################################################################
+@app.route('/api/file-content', methods=['GET'])
+def read_file_content(file_path=None):
+    # Accept either 'file' or 'file_path' as query parameter for compatibility
+    file_path = request.args.get('file') or request.args.get('file_path')
+    if not file_path:
+        return jsonify({'success': False, 'error': 'File path is required'}), 400
+
+    # Security: Only allow reading files from backup folders
+    allowed_dirs = [MAIN_BACKUP_FOLDER, BACKUP_FOLDER_NAME]
+    abs_path = os.path.abspath(file_path)
+    if not any(abs_path.startswith(os.path.abspath(d)) for d in allowed_dirs):
+        return jsonify({'success': False, 'error': 'Access denied: file not in backup folders'}), 403
+
+    # Only allow reading text files (simple extension check)
+    text_extensions = ['.txt', '.md', '.py', '.json', '.csv', '.log', '.html', '.js', '.css', '.xml', '.yaml', '.yml', '.sh']
+    ext = os.path.splitext(abs_path)[1].lower()
+    if ext not in text_extensions:
+        # Return metadata for unsupported/binary files
+        try:
+            stat_info = os.stat(abs_path)
+            metadata = {
+                'name': os.path.basename(abs_path),
+                'size': f"{stat_info.st_size} bytes",
+                'mtime': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat_info.st_mtime)),
+                'type': ext,
+            }
+            return jsonify({
+                'success': False,
+                'error': 'Binary or unsupported file type',
+                'metadata': metadata
+            }), 200
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    try:
+        with open(abs_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return jsonify({'success': True, 'content': content}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/file-versions', methods=['GET'])
+def get_file_versions():
+    file_path = request.args.get('file_path')
+    if not file_path:
+        return jsonify({'success': False, 'error': 'Missing file_path'}), 400
+
+    # Your logic to find all backup versions for this file
+    # For example, search in your backup folders for files matching the relative path
+    versions = []
+    rel_path = os.path.relpath(file_path, MAIN_BACKUP_FOLDER)
+    # Search in incremental backup folders
+    for date_folder in os.listdir(BACKUP_FOLDER_NAME):
+        date_path = os.path.join(BACKUP_FOLDER_NAME, date_folder)
+        if not os.path.isdir(date_path):
+            continue
+        for time_folder in os.listdir(date_path):
+            time_path = os.path.join(date_path, time_folder)
+            backup_file = os.path.join(time_path, rel_path)
+            if os.path.exists(backup_file):
+                stat = os.stat(backup_file)
+                versions.append({
+                    'key': f"{date_folder}_{time_folder}",
+                    'time': f"{date_folder} {time_folder}",
+                    'path': backup_file,
+                    'size': stat.st_size,
+                })
+                
+    # Add main backup version
+    main_backup_file = os.path.join(MAIN_BACKUP_FOLDER, rel_path)
+    if os.path.exists(main_backup_file):
+        stat = os.stat(main_backup_file)
+        versions.insert(0, {
+            'key': 'main',
+            'time': 'Main Backup',
+            'path': main_backup_file,
+            'size': stat.st_size,
+        })
+
+    return jsonify({'success': True, 'versions': versions}), 200
+
 
 if __name__ == '__main__':
+    backup_service = BackupService()
+
+    log_file_path = server.get_log_file_path()
+    os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+    
+    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    
+    file_handler = logging.FileHandler(log_file_path)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    
     app.run(debug=True)
+
+"""
+        abs_file_to_restore_path = os.path.abspath(file_to_restore_path)
+        main_backup_abs_path = os.path.abspath(MAIN_BACKUP_FOLDER)
+        incremental_backups_abs_path = os.path.abspath(server.backup_folder_name())
+
+        rel_path = None
+        if abs_file_to_restore_path.startswith(main_backup_abs_path):
+            rel_path = os.path.relpath(abs_file_to_restore_path, main_backup_abs_path)
+        elif abs_file_to_restore_path.startswith(incremental_backups_abs_path):
+            temp_rel_path = os.path.relpath(abs_file_to_restore_path, incremental_backups_abs_path)
+            # Expected structure: DATE/TIME/actual/path/to/file
+            parts = temp_rel_path.split(os.sep)
+            if len(parts) > 2: # Ensure there's at least DATE/TIME and then the actual relative path
+                rel_path = os.path.join(*parts[2:])
+            else:
+                print(f"Error: Could not determine relative path for incremental backup: {file_to_restore_path}")
+                if clicked_button_widget: GLib.idle_add(clicked_button_widget.set_sensitive, True)
+                return
+        else:
+            print(f"Error: File path '{file_to_restore_path}' is not within known backup locations: '{main_backup_abs_path}' or '{incremental_backups_abs_path}'")
+            if clicked_button_widget: GLib.idle_add(clicked_button_widget.set_sensitive, True)
+            return
+
+        destination_path = os.path.join(HOME_USERNAME, rel_path)
+
+"""

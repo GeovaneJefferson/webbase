@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DataGuardian - Real-Time Local Backups</title>
+    <link rel="icon" type="image/png" href="/static/data/icons/io.github.geovanejefferson.timemachine.png">
+    <title>Time Machine - Real-Time Local Backups</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.0.1/diff.min.js"></script> -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
@@ -12,13 +13,13 @@
 
 <body class="bg-gray-50 flex h-screen overflow-hidden">
     <!-- Left Sidebar -->
-    <div id="leftSidebar" class="w-64 bg-white border-r border-gray-200 flex flex-col h-full transition-all duration-300">
+    <div id="leftSidebar" class="w-48 bg-white border-r border-gray-200 flex flex-col h-full transition-all duration-300">
         <div class="p-4 flex items-center justify-between">
             <div class="flex items-center">
                 <div class="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold">
                     <i class="fas fa-shield-alt"></i>
                 </div>
-                <span class="ml-2 font-semibold sidebar-content">DataGuardian</span>
+                <span class="ml-2 font-semibold sidebar-content">Time Machine</span>
             </div>
             <!-- Icon on the right side of the App Title -->
             <!-- <button class="text-gray-500 hover:text-gray-700 sidebar-content">
@@ -92,12 +93,6 @@
                 </div>
             </div> -->
         </div>
-        
-        <div class="p-4 border-t border-gray-200 flex justify-center">
-            <button id="toggleSidebar" class="text-gray-500 hover:text-gray-700">
-                <i class="fas fa-chevron-left"></i>
-            </button>
-        </div>
     </div>
     
     <!-- Main Content -->
@@ -115,7 +110,7 @@
                 
                 <div class="flex items-center">
                     <div class="relative mr-4 w-64">
-                        <input id="searchInput" type="text" placeholder="Search files..." class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-full">
+                        <input id="searchInput" type="text" placeholder="Start typing to search for files." class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-full">
                         <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
                     </div>
                 </div>
@@ -134,7 +129,8 @@
         </div>
         
         <!-- Main Content Area -->
-        <div class="flex-1 overflow-x-auto overflow-y-hidden p-6 bg-gray-50">
+        <div class="flex-1 overflow-y-auto p-6 bg-gray-50">
+
             <!-- Overview Section -->
             <div id="overview-section" class="content-section active">
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
@@ -305,190 +301,77 @@
                     </div>
                 </div>
 
-                <!-- Watched Folders Section -->
-                <div class="bg-white rounded-lg shadow-sm">
-                    <div class="p-4 h-full flex flex-col">
-                        <div class="flex justify-between items-center mb-4">
-                            <div class="font-medium">Watched Folders</div>
-                            <!-- <button class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-                                Manage Folders
-                            </button> -->
-                        </div>
-                        
-                        <!-- Scrollable Table Container - Updated with proper height constraints -->
-                        <div class="flex-1 overflow-hidden flex flex-col" style="max-height: calc(100vh - 200px);">
-                            <!-- Table Header (Fixed) -->
-                            <div class="overflow-x-auto">
-                                <table class="min-w-full divide-y divide-gray-200">
-                                    <thead class="bg-gray-50">
-                                        <tr>
-                                            <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Folder Path</th>
-                                            <th scope="col" class="px-2 py-2 text-left text-xs text-center font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                            <th scope="col" class="px-4 py-2 text-left text-xs text-center font-medium text-gray-500 uppercase tracking-wider">Last Activity</th>
-                                            <th scope="col" class="px-4 py-2 text-left text-xs text-center font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                                        </tr>
-                                    </thead>
-                                </table>
-                            </div>
-                            
-                            <!-- Scrollable Table Body - Updated with proper scrolling -->
-                            <div class="flex-1 overflow-y-auto">
-                                <table class="min-w-full divide-y divide-gray-200">
-                                    <tbody class="bg-white divide-y divide-gray-200" id="watchedFoldersTable">
-                                        <!-- Your existing table rows here -->
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
             </div>
             
             <!-- Files Section -->
-            <div id="files-section" class="content-section">
-                <div class="bg-white rounded-lg shadow-sm">
-                    <div class="p-4 border-b border-gray-200">
-                        <div class="flex justify-between items-center">
-                            <div class="font-medium">Backup Files</div>
-                            <div class="flex space-x-2">
-                                <button class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-                                    <i class="fas fa-filter mr-1"></i> Filter
-                                </button>
-                                <button class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-                                    <i class="fas fa-sort mr-1"></i> Sort
-                                </button>
-                            </div>
+            <!-- <div id="files-section" class="view-content flex h-full"> -->
+            <div id="files-section" class="content-section flex-col">
+                <!-- File List (Left Half) -->                
+                <!-- This needs to be full height, will be on the left side. Needs to be content-section, so it can be hidden if user chooses another tab-->
+                <div class="w-1/3 bg-white rounded-lg shadow-sm p-6 flex flex-col h-full"> 
+                    <h3 class="font-bold text-lg mb-3 text-gray-700">Backup Files</h3>
+                    <div id="file-list-container" class="space-y-1 overflow-y-auto">
+                        <!-- File Items will be generated here by JavaScript -->
+                    </div>
+                </div>
+
+                <!-- THis will be on the right side, File Version History: on the right top, Current File Content (Left Diff) and  Backup Version Content (Right Diff) on the right bottom -->
+                <!-- Content Viewer (Right Half) -->
+                <div class="w-2/3 flex flex-col p-4 bg-gray-100 overflow-y-auto">
+                    <h3 class="font-bold text-xl mb-4 text-gray-800">File Version History: <span id="currentFileNameDisplay"></span></h3>
+                    <!-- Version Timeline/Selector -->
+                    <div id="version-pills-container-wrapper" class="mb-4 bg-white p-4 rounded-xl shadow-lg relative">
+                        <h4 class="font-semibold text-gray-700 mb-2">Select Backup:</h4>
+                        <!-- Version Pills -->
+                        <div class="flex space-x-2 overflow-x-auto pb-2" id="version-pills-container">
+                            <!-- Version Pills will be generated here by JavaScript -->
                         </div>
                     </div>
-                    
-                    <div class="p-4">
-                        <!-- File List Container -->
-                        <div class="space-y-3">
-                            <!-- File Item 1 -->
-                            <div class="file-item bg-white p-3 rounded-lg border border-gray-200 hover:border-indigo-300 transition-colors duration-200">
-                                <div class="flex items-center">
-                                    <!-- Thumbnail -->
-                                    <div class="w-16 h-16 flex-shrink-0 bg-blue-50 rounded-md flex items-center justify-center overflow-hidden">
-                                        <img src="https://via.placeholder.com/64" alt="Document thumbnail" class="max-w-full max-h-full object-contain">
-                                    </div>
-                                    
-                                    <!-- File Info -->
-                                    <div class="ml-4 flex-grow min-w-0">
-                                        <div class="flex items-center justify-between">
-                                            <h3 class="font-medium truncate">Document1.docx</h3>
-                                            <span class="text-sm text-gray-500 ml-2">2.4 MB</span>
-                                        </div>
-                                        <div class="text-sm text-gray-500 mt-1">
-                                            <i class="fas fa-history text-xs mr-1"></i>
-                                            <span>Backed up: Today, 9:15 AM</span>
-                                        </div>
-                                        <div class="text-xs text-gray-400 mt-1">
-                                            <span>Version 3</span>
-                                            <span class="mx-2">•</span>
-                                            <span>Modified: Today, 8:30 AM</span>
-                                        </div>
-                                    </div>
-                                    
-                                    <!-- Action Buttons -->
-                                    <div class="ml-4 flex-shrink-0 flex space-x-2">
-                                        <button class="action-btn bg-indigo-50 text-indigo-600 hover:bg-indigo-100">
-                                            <i class="fas fa-folder-open mr-1"></i> Open
-                                        </button>
-                                        <button class="action-btn bg-gray-50 text-gray-600 hover:bg-gray-100">
-                                            <i class="fas fa-folder mr-1"></i> Location
-                                        </button>
-                                        <button class="action-btn bg-yellow-50 text-yellow-600 hover:bg-yellow-100">
-                                            <i class="fas fa-code-compare mr-1"></i> Diff
-                                        </button>
-                                        <button class="action-btn bg-green-50 text-green-600 hover:bg-green-100">
-                                            <i class="fas fa-rotate-left mr-1"></i> Restore
-                                        </button>
+
+                    <!-- File Content Diff/Viewer -->
+                    <div class="flex-1 flex flex-col bg-white rounded-xl shadow-lg overflow-hidden">
+                        <div class="flex-1 flex overflow-hidden">
+                            <!-- Current File Content (Left Diff) -->
+                            <div class="w-1/2 flex flex-col border-r border-gray-200 overflow-hidden">
+                                <div class="p-3 bg-gray-50 flex justify-between items-center">
+                                    <h3 class="font-medium text-sm flex items-center">
+                                        <i class="fas fa-clock text-gray-500 mr-2"></i>
+                                        <span id="currentVersionTime">Current File (Latest Version)</span>
+                                    </h3>
+                                    <span class="text-xs text-gray-500 px-3 py-1">
+                                        <i class="fas fa-link mr-1"></i> Active
+                                    </span>
+                                </div>
+                                <div class="flex-1 overflow-auto relative">
+                                    <div class="absolute inset-0 flex">
+                                        <div class="flex-1 overflow-auto p-4 font-mono text-sm" id="currentFileContent"></div>
                                     </div>
                                 </div>
                             </div>
-                            
-                            <!-- File Item 2 -->
-                            <div class="file-item bg-white p-3 rounded-lg border border-gray-200 hover:border-indigo-300 transition-colors duration-200">
-                                <div class="flex items-center">
-                                    <!-- Thumbnail -->
-                                    <div class="w-16 h-16 flex-shrink-0 bg-red-50 rounded-md flex items-center justify-center overflow-hidden">
-                                        <img src="https://via.placeholder.com/64/ff0000" alt="PDF thumbnail" class="max-w-full max-h-full object-contain">
-                                    </div>
-                                    
-                                    <!-- File Info -->
-                                    <div class="ml-4 flex-grow min-w-0">
-                                        <div class="flex items-center justify-between">
-                                            <h3 class="font-medium truncate">Report2023.pdf</h3>
-                                            <span class="text-sm text-gray-500 ml-2">5.7 MB</span>
-                                        </div>
-                                        <div class="text-sm text-gray-500 mt-1">
-                                            <i class="fas fa-history text-xs mr-1"></i>
-                                            <span>Backed up: Yesterday, 4:30 PM</span>
-                                        </div>
-                                        <div class="text-xs text-gray-400 mt-1">
-                                            <span>Version 2</span>
-                                            <span class="mx-2">•</span>
-                                            <span>Modified: Yesterday, 3:45 PM</span>
-                                        </div>
-                                    </div>
-                                    
-                                    <!-- Action Buttons -->
-                                    <div class="ml-4 flex-shrink-0 flex space-x-2">
-                                        <button class="action-btn bg-indigo-50 text-indigo-600 hover:bg-indigo-100">
-                                            <i class="fas fa-folder-open mr-1"></i> Open
+                            <!-- Backup Version Content (Right Diff) -->
+                            <div class="w-1/2 flex flex-col overflow-hidden">
+                                <div class="p-3 bg-gray-50 flex justify-between items-center">
+                                    <h3 class="font-medium text-sm flex items-center">
+                                        <i class="fas fa-clock text-gray-500 mr-2"></i>
+                                        <span id="backupVersionTime">Backup Version</span>
+                                    </h3>
+                                    <!-- ACTION BUTTONS: RESTORE | OPEN | OPEN LOCATION -->
+                                    <div class="flex items-center space-x-2" id="backupVersionActions">
+                                        <button data-action="restore" class="action-btn text-xs bg-red-100 text-red-600 px-3 py-1 rounded-lg hover:bg-red-200 transition-colors font-medium">
+                                            <i class="fas fa-rotate-left mr-1"></i> Restore File
                                         </button>
-                                        <button class="action-btn bg-gray-50 text-gray-600 hover:bg-gray-100">
-                                            <i class="fas fa-folder mr-1"></i> Location
+                                        <button id="openFileBtn" data-action="open" class="action-btn text-xs bg-indigo-50 text-indigo-600 px-3 py-1 rounded-lg hover:bg-indigo-100 transition-colors font-medium">
+                                            <i class="fas fa-eye mr-1"></i> Open
                                         </button>
-                                        <button class="action-btn bg-yellow-50 text-yellow-600 hover:bg-yellow-100">
-                                            <i class="fas fa-code-compare mr-1"></i> Diff
-                                        </button>
-                                        <button class="action-btn bg-green-50 text-green-600 hover:bg-green-100">
-                                            <i class="fas fa-rotate-left mr-1"></i> Restore
+                                        <button id="openLocationBtn" data-action="open-location" class="action-btn text-xs bg-indigo-50 text-indigo-600 px-3 py-1 rounded-lg hover:bg-indigo-100 transition-colors font-medium">
+                                            <i class="fas fa-map-pin mr-1"></i> Open Location
                                         </button>
                                     </div>
+                                    <!-- END ACTION BUTTONS -->
                                 </div>
-                            </div>
-                            
-                            <!-- File Item 3 -->
-                            <div class="file-item bg-white p-3 rounded-lg border border-gray-200 hover:border-indigo-300 transition-colors duration-200">
-                                <div class="flex items-center">
-                                    <!-- Thumbnail -->
-                                    <div class="w-16 h-16 flex-shrink-0 bg-green-50 rounded-md flex items-center justify-center overflow-hidden">
-                                        <img src="https://via.placeholder.com/64/00ff00" alt="Spreadsheet thumbnail" class="max-w-full max-h-full object-contain">
-                                    </div>
-                                    
-                                    <!-- File Info -->
-                                    <div class="ml-4 flex-grow min-w-0">
-                                        <div class="flex items-center justify-between">
-                                            <h3 class="font-medium truncate">Budget.xlsx</h3>
-                                            <span class="text-sm text-gray-500 ml-2">3.1 MB</span>
-                                        </div>
-                                        <div class="text-sm text-gray-500 mt-1">
-                                            <i class="fas fa-history text-xs mr-1"></i>
-                                            <span>Backed up: Today, 10:24 AM</span>
-                                        </div>
-                                        <div class="text-xs text-gray-400 mt-1">
-                                            <span>Version 5</span>
-                                            <span class="mx-2">•</span>
-                                            <span>Modified: Today, 9:45 AM</span>
-                                        </div>
-                                    </div>
-                                    
-                                    <!-- Action Buttons -->
-                                    <div class="ml-4 flex-shrink-0 flex space-x-2">
-                                        <button class="action-btn bg-indigo-50 text-indigo-600 hover:bg-indigo-100">
-                                            <i class="fas fa-folder-open mr-1"></i> Open
-                                        </button>
-                                        <button class="action-btn bg-gray-50 text-gray-600 hover:bg-gray-100">
-                                            <i class="fas fa-folder mr-1"></i> Location
-                                        </button>
-                                        <button class="action-btn bg-yellow-50 text-yellow-600 hover:bg-yellow-100">
-                                            <i class="fas fa-code-compare mr-1"></i> Diff
-                                        </button>
-                                        <button class="action-btn bg-green-50 text-green-600 hover:bg-green-100">
-                                            <i class="fas fa-rotate-left mr-1"></i> Restore
-                                        </button>
+                                <div class="flex-1 overflow-auto relative">
+                                    <div class="absolute inset-0 flex">
+                                        <div class="flex-1 overflow-auto p-4 font-mono text-sm bg-gray-50" id="backupFileContent"></div>
                                     </div>
                                 </div>
                             </div>
@@ -496,7 +379,7 @@
                     </div>
                 </div>
             </div>
-            
+
             <!-- Devices Section -->
             <div id="devices-section" class="content-section">
                 <div class="bg-white rounded-lg shadow-sm p-6">
@@ -528,7 +411,7 @@
             
             <!-- Settings Section -->
             <div id="settings-section" class="content-section">
-                <div class="bg-white rounded-lg shadow-sm p-6">
+                <div class="bg-white rounded-lg shadow-sm p-6 mb-6">
                     <div class="font-medium text-lg mb-6">Application Settings</div>
                     <div class="space-y-6">
                         <div>
@@ -585,6 +468,44 @@
                         </button> -->
                     </div>
                 </div>
+
+                <!-- Watched Folders Section -->
+                <div class="bg-white rounded-lg shadow-sm">
+                    <div class="p-4">
+                        <div id="watchedFoldersToggle" class="flex justify-between items-center cursor-pointer">
+                            <div class="font-medium">Watched Folders</div>
+                            <button class="text-gray-500 hover:text-gray-700">
+                                <i id="watchedFoldersToggleIcon" class="fas fa-chevron-up transition-transform"></i>
+                            </button>
+                        </div>
+                        
+                        <!-- Scrollable Table Container - Updated with proper height constraints -->
+                        <div id="watchedFoldersContent" class="mt-4 overflow-hidden transition-all duration-300 ease-in-out hidden">
+                            <!-- Table Header (Fixed) -->
+                            <div class="overflow-x-auto border-t border-gray-200 pt-4">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Folder Path</th>
+                                            <th scope="col" class="px-2 py-2 text-left text-xs text-center font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                            <th scope="col" class="px-4 py-2 text-left text-xs text-center font-medium text-gray-500 uppercase tracking-wider">Last Activity</th>
+                                            <th scope="col" class="px-4 py-2 text-left text-xs text-center font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                        </tr>
+                                    </thead>
+                                </table>
+                            </div>
+                            
+                            <!-- Scrollable Table Body - Updated with proper scrolling -->
+                            <div class="flex-1 overflow-y-auto">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <tbody class="bg-white divide-y divide-gray-200" id="watchedFoldersTable">
+                                        <!-- Your existing table rows here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
             
             <!-- Logs Section -->
@@ -616,7 +537,7 @@
     </div>
     
     <!-- Right Sidebar -->
-    <div class="w-80 bg-white border-l border-gray-200 flex flex-col h-full">
+    <div id="rightSidebar" class="w-full max-w-xs sm:max-w-sm md:max-w-md lg:w-80 bg-white border-l border-gray-200 flex flex-col h-full">
         <div class="p-4 border-b border-gray-200">
             <div class="font-semibold mb-3">Storage Information</div>
             <div class="space-y-4">
@@ -817,6 +738,7 @@
                             </div>
                         </div>
                     </div>
+                    <div id="paginationControls" class="mt-4 flex justify-center"></div>
                 </div>
             </div>
         </div>

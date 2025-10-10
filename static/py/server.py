@@ -85,12 +85,13 @@ class SERVER:
 		# APP SETTINGS
 		################################################################################
 		self.DEV_NAME: str = "Geovane J."
-		self.GITHUB_PAGE: str = "https://github.com/GeovaneJefferson/dataguardian"
-		self.GITHUB__ISSUES: str = "https://github.com/GeovaneJefferson/dataguardian/issues"
+		self.GITHUB_PAGE: str = "https://github.com/GeovaneJefferson/timemachine"
+		self.GITHUB__ISSUES: str = "https://github.com/GeovaneJefferson/timemachine/issues"
 		self.COPYRIGHT: str = "Copyright © 2025 Geovane J.\n\n This application comes with absolutely no warranty. See the GNU General Public License, version 3 or later for details."
-		self.ID: str = "io.github.geovanejefferson.dataguardian"
-		self.APP_NAME: str = "Data Guardian"
-		# self.APP_NAME_CLOSE_LOWER: str = "dataguardian"
+		self.ID: str = "io.github.geovanejefferson.timemachine"
+		self.APP_NAME: str = "Time Machine"
+		self.BACKUP_FOLDERS_NAME: str = "BACKUP"  # Temporary name for backup folder, needs to be dynamically
+		# self.APP_NAME_CLOSE_LOWER: str = "timemachine"
 		self.APP_NAME_CLOSE_LOWER: str = self.APP_NAME.lower().replace(" ", "")
 		self.APP_VERSION: str = "v0.1 dev"
 		self.SUMMARY_FILENAME: str = ".backup_summary.json"
@@ -113,9 +114,9 @@ class SERVER:
 		self.USER_HOME: str = os.path.expanduser("~")  # Get user's home directory
 		self.LOG_FILE_PATH = os.path.expanduser(f"~/.{self.APP_NAME_CLOSE_LOWER}.log")
 		
-		# self.SOCKET_PATH = "/tmp/guardian-ui.sock"
+		self.SOCKET_PATH = "/tmp/guardian-ui.sock"  # Non flatpak
 		# self.SOCKET_PATH: str = f"~/.var/app/{self.ID}/cache/tmp/guardian-ui.sock"
-		self.SOCKET_PATH = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "guardian-ui.sock")
+		# self.SOCKET_PATH = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "guardian-ui.sock")
 		# Concurrency settings for copying files
 		# Default, can be adjusted based on system resources and current load
 		self.DEFAULT_COPY_CONCURRENCY = 2
@@ -139,7 +140,9 @@ class SERVER:
 		# LOCATIONS
 		################################################################################
 		self.CONF = configparser.ConfigParser()
-		self.CONF_LOCATION: str = os.path.join(os.path.expanduser("~"), '.var', 'app', self.ID, 'config', 'config.conf')
+		# FLATPAK
+		# self.CONF_LOCATION: str = os.path.join(os.path.expanduser("~"), '.var', 'app', self.ID, 'config', 'config.conf')
+		self.CONF_LOCATION: str = "config/config.conf"
 		self.autostart_file: str = os.path.expanduser(f"~/.config/autostart/{self.APP_NAME.lower()}_autostart.desktop")
 
 		if not os.path.exists(self.CONF_LOCATION):
@@ -152,12 +155,12 @@ class SERVER:
 
 		# DRIVER Section
 		self.DRIVER_NAME = self.get_database_value(
-			section='DRIVER',
-			option='driver_name')
+			section='DEVICE_INFO',
+			option='name')
 
 		self.DRIVER_LOCATION = self.get_database_value(
-			section='DRIVER',
-			option='driver_location')
+			section='DEVICE_INFO',
+			option='path')
 
 		self.AUTOMATICALLY_BACKUP = self.get_database_value(
 			section='BACKUP',
@@ -172,7 +175,7 @@ class SERVER:
 		# self.DAEMON_PID_LOCATION: str = os.path.join(self.create_base_folder(), 'daemon.pid')
 		
 		# Flatpak
-		self.DAEMON_PY_LOCATION: str = os.path.join('/app/share/dataguardian/src', 'daemon.py')
+		self.DAEMON_PY_LOCATION: str = os.path.join('/app/share/timemachine/src', 'daemon.py')
 		self.DAEMON_PID_LOCATION: str = os.path.join(os.path.expanduser("~"), '.var', 'app', self.ID, 'config', 'daemon.pid')
         
 		self.CACHE = {}

@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="/static/data/icons/io.github.geovanejefferson.timemachine.png">
+    <title>Time Machine - Real-Time Local Backups</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Custom styles for diff view */
+        .diff-line {
+            display: flex;
+            align-items: flex-start; /* Align content to the top of the line */
+            padding: 2px 0;
+            line-height: 1.5;
+            min-height: 1.5rem; /* Ensure minimum height even for empty lines */
+        }
+        .diff-line-marker {
+            width: 1.5rem;
+            text-align: center;
+            font-weight: bold;
+            font-family: monospace;
+            padding-right: 8px;
+            user-select: none;
+            flex-shrink: 0;
+            padding-top: 2px; /* Align marker with content */
+        }
+        .diff-line-content {
+            flex-grow: 1;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        /* Diff Colors */
+        .diff-added {
+            background-color: #d1fae5; /* Green 100 */
+        }
+        .diff-removed {
+            background-color: #fee2e2; /* Red 100 */
+        }
+        .diff-added .diff-line-marker {
+            color: #059669; /* Green 600 */
+        }
+        .diff-removed .diff-line-marker {
+            color: #dc2626; /* Red 600 */
+        }
+
+        /* Utility to hide inactive views */
+        .view-content:not(.active) {
+            display: none;
+        }
+        /* Custom styling for the file list items */
+        .file-item.active {
+            border-left-color: #4f46e5; /* Indigo 600 */
+            background-color: #f3f4f6; /* Gray 100 */
+        }
+        .file-item:hover:not(.active) {
+            border-left-color: #a5b4fc; /* Indigo 300 on hover */
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 flex h-screen overflow-hidden">
+
+    <!-- Notification Message Box (for action demo) -->
+    <div id="demo-message" class="fixed top-4 right-4 z-50 p-4 bg-green-500 text-white rounded-xl shadow-lg transition-opacity duration-300 opacity-0 pointer-events-none">
+        <i class="fas fa-check-circle mr-2"></i> <span>Action simulated!</span>
+    </div>
+
+    <!-- Left Sidebar -->
+    <div id="leftSidebar" class="w-64 bg-white border-r border-gray-200 flex flex-col h-full transition-all duration-300">
+        
+        <!-- App Header with Pro Badge -->
+        <div class="p-4 flex items-center justify-between border-b border-gray-200">
+            <div class="flex items-center">
+                <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold">
+                    <i class="fas fa-shield-alt"></i>
+                </div>
+                <span class="ml-2 font-bold text-lg text-gray-800">Time Machine</span>
+                <!-- PRO Badge Addition -->
+                <span id="pro-badge" class="ml-2 px-2 py-0.5 text-xs font-bold bg-yellow-100 text-yellow-800 rounded-full shadow-sm">
+                    <i class="fas fa-crown text-yellow-600 mr-1"></i> FREE
+                </span>
+                <!-- End PRO Badge Addition -->
+            </div>
+            <button id="hamburgerBtn" class="lg:hidden text-gray-500 hover:text-gray-700">
+                <i class="fas fa-bars"></i>
+            </button>
+        </div>
+
+        <!-- Navigation Links -->
+        <nav id="nav-links" class="flex-1 overflow-y-auto p-4 space-y-2">
+            <a href="#" data-view="file-system" class="nav-link flex items-center px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg shadow-md transition-colors">
+                <i class="fas fa-folder-open mr-3"></i>
+                File System View
+            </a>
+            <a href="#" data-view="settings" class="nav-link flex items-center px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                <i class="fas fa-cog mr-3"></i>
+                Settings & Paths
+            </a>
+            <a href="#" data-view="restore-log" class="nav-link flex items-center px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                <i class="fas fa-history mr-3"></i>
+                Restore Log
+            </a>
+        </nav>
+
+        <!-- Monetization Call to Action -->
+        <div class="p-4 border-t border-gray-200" id="monetization-cta">
+            <div class="bg-indigo-50 border border-indigo-200 p-3 rounded-xl text-center shadow-inner">
+                <p class="text-sm font-semibold text-indigo-700 mb-2">Unlock Cloud Backups & Encryption</p>
+                <a href="index.html" class="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-bold rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 transition duration-150 ease-in-out shadow-lg">
+                    <i class="fas fa-lock mr-2"></i> Get Pro Access ($49)
+                </a>
+                <p class="text-xs text-indigo-500 mt-1">One-Time Purchase.</p>
+            </div>
+        </div>
+        
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+        
+        <!-- Main Header -->
+        <header class="bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+            <h2 id="main-header-title" class="text-xl font-semibold text-gray-800">Current Path: /home/user/Documents/</h2>
+            <div class="flex items-center space-x-3" id="header-actions">
+                <!-- Actions will change based on the view -->
+            </div>
+        </header>
+
+        <!-- Main Workspace Container -->
+        <div id="main-workspace" class="flex-1 overflow-hidden bg-gray-100">x
+
+            <!-- 1. File System View (Active by default) -->
+            <div id="file-system-view" class="view-content active h-full flex overflow-hidden">
+                <!-- File List (Left Half) -->
+                <div class="w-1/3 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col">
+                    <h3 class="font-bold text-lg mb-3 text-gray-700">Protected Files</h3>
+                    
+                    <div id="file-list-container" class="space-y-1">
+                        <!-- File Items will be generated here by JavaScript -->
+                    </div>
+                </div>
+
+                <!-- Content Viewer (Right Half) -->
+                <div class="w-2/3 flex flex-col p-4 bg-gray-100 overflow-y-auto">
+                    <h3 class="font-bold text-xl mb-4 text-gray-800">File Version History: <span id="currentFileNameDisplay"></span></h3>
+                    
+                    <!-- Version Timeline/Selector -->
+                    <div id="version-pills-container-wrapper" class="mb-4 bg-white p-4 rounded-xl shadow-lg relative">
+                        <h4 class="font-semibold text-gray-700 mb-2">Select Backup:</h4>
+                        
+                        <!-- Version Pills -->
+                        <div class="flex space-x-2 overflow-x-auto pb-2" id="version-pills-container">
+                            <!-- Version Pills will be generated here by JavaScript -->
+                        </div>
+                    </div>
+
+                    <!-- File Content Diff/Viewer -->
+                    <div class="flex-1 flex flex-col bg-white rounded-xl shadow-lg overflow-hidden">
+                        <div class="flex-1 flex overflow-hidden">
+                            <!-- Current File Content (Left Diff) -->
+                            <div class="w-1/2 flex flex-col border-r border-gray-200 overflow-hidden">
+                                <div class="p-3 bg-gray-50 flex justify-between items-center">
+                                    <h3 class="font-medium text-sm flex items-center">
+                                        <i class="fas fa-clock text-gray-500 mr-2"></i>
+                                        <span id="currentVersionTime">Current File (Latest Version)</span>
+                                    </h3>
+                                    <span class="text-xs text-gray-500 px-3 py-1">
+                                        <i class="fas fa-link mr-1"></i> Active
+                                    </span>
+                                </div>
+                                <div class="flex-1 overflow-auto relative">
+                                    <div class="absolute inset-0 flex">
+                                        <div class="flex-1 overflow-auto p-4 font-mono text-sm" id="currentFileContent"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Backup Version Content (Right Diff) -->
+                            <div class="w-1/2 flex flex-col overflow-hidden">
+                                <div class="p-3 bg-gray-50 flex justify-between items-center">
+                                    <h3 class="font-medium text-sm flex items-center">
+                                        <i class="fas fa-clock text-gray-500 mr-2"></i>
+                                        <span id="backupVersionTime">Backup Version</span>
+                                    </h3>
+                                    <!-- ACTION BUTTONS: RESTORE | OPEN | OPEN LOCATION -->
+                                    <div class="flex items-center space-x-2" id="backupVersionActions">
+                                        <button data-action="restore" class="action-btn text-xs bg-red-100 text-red-600 px-3 py-1 rounded-lg hover:bg-red-200 transition-colors font-medium">
+                                            <i class="fas fa-rotate-left mr-1"></i> Restore File
+                                        </button>
+                                        <button data-action="open" class="action-btn text-xs bg-indigo-50 text-indigo-600 px-3 py-1 rounded-lg hover:bg-indigo-100 transition-colors font-medium">
+                                            <i class="fas fa-eye mr-1"></i> Open
+                                        </button>
+                                        <button data-action="open-location" class="action-btn text-xs bg-indigo-50 text-indigo-600 px-3 py-1 rounded-lg hover:bg-indigo-100 transition-colors font-medium">
+                                            <i class="fas fa-map-pin mr-1"></i> Open Location
+                                        </button>
+                                    </div>
+                                    <!-- END ACTION BUTTONS -->
+                                </div>
+                                <div class="flex-1 overflow-auto relative">
+                                    <div class="absolute inset-0 flex">
+                                        <div class="flex-1 overflow-auto p-4 font-mono text-sm bg-gray-50" id="backupFileContent"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. Settings & Paths View -->
+            <div id="settings-view" class="view-content p-8 overflow-y-auto">
+                <h1 class="text-3xl font-bold text-gray-800 mb-6">Settings & Paths</h1>
+
+                <!-- Backup Path Configuration -->
+                <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+                    <h2 class="text-xl font-semibold text-gray-700 mb-4 flex items-center">
+                        <i class="fas fa-folder-tree mr-3 text-indigo-500"></i> Backup Storage Path
+                    </h2>
+                    <p class="text-sm text-gray-600 mb-4">This is where Time Machine stores all your local file versions.</p>
+                    
+                    <div class="flex items-center space-x-4">
+                        <input type="text" value="/var/timemachine/backups/" readonly class="flex-1 p-3 border border-gray-300 bg-gray-50 rounded-lg text-sm font-mono focus:outline-none">
+                        <button class="bg-indigo-600 text-white px-4 py-3 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
+                            <i class="fas fa-edit mr-2"></i> Change Path
+                        </button>
+                    </div>
+                    <p class="text-xs text-red-500 mt-2">Warning: Changing this path may require a full rescan.</p>
+                </div>
+
+                <!-- Retention Policy -->
+                <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+                    <h2 class="text-xl font-semibold text-gray-700 mb-4 flex items-center">
+                        <i class="fas fa-calendar-check mr-3 text-indigo-500"></i> Version Retention Policy
+                    </h2>
+                    <p class="text-sm text-gray-600 mb-4">How long should Time Machine keep old file versions?</p>
+                    
+                    <select class="block w-64 p-3 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                        <option>Keep forever (High Storage)</option>
+                        <option selected>Keep versions for 30 days</option>
+                        <option>Keep only the last 5 versions</option>
+                        <option>Delete versions older than 90 days</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 3. Restore Log View -->
+            <div id="restore-log-view" class="view-content p-8 overflow-y-auto">
+                <h1 class="text-3xl font-bold text-gray-800 mb-6 flex items-center">
+                    <i class="fas fa-list-ul mr-3 text-indigo-600"></i> Restore Log
+                </h1>
+                
+                <p class="text-gray-600 mb-4">A record of all files restored or reverted using Time Machine.</p>
+
+                <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">File</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Restored To</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Restored From</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <!-- Log Entry Example -->
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">project_report.md</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Current (11:00 AM)</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Backup (9:00 AM)</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">2024-10-08 11:05 AM</td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Completed</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- Combined Scripts for Demo Functionality -->
+    <script>
+        // --- DATA STRUCTURE ---
+        const fileData = {
+            "meeting_notes_2024.txt": {
+                name: "meeting_notes_2024.txt",
+                icon: 'fas fa-file-alt text-green-500',
+                type: 'text',
+                versions: {
+                    v3: {
+                        time: "10:00 AM (V3 - Current)",
+                        content: `## Meeting Notes - Project X (10:00 AM)
+
+- Discussed marketing strategy for Q4.
++ Action: John to finalize budget by EOD. (ADDED in V3)
+  Agreed to use the new cloud backup feature.
+- Next meeting scheduled for Friday.`,
+                        size: '1.2 KB'
+                    },
+                    v2: {
+                        time: "9:30 AM (V2)",
+                        content: `## Meeting Notes - Project X (9:30 AM)
+
+- Discussed marketing strategy for Q4.
+- Agreed to use the new cloud backup feature.
+- Next meeting scheduled for Friday.`,
+                        size: '1.1 KB'
+                    },
+                    v1: {
+                        time: "9:00 AM (V1)",
+                        content: `## Initial Notes (9:00 AM)
+
+- Discussion started on Project X.
+- Initial scope defined.
+- Decided to postpone budget review.
+- Agreed to use only local backups for now.
++ Placeholder line to show deletion. (DELETED in V2)`,
+                        size: '0.9 KB'
+                    }
+                }
+            },
+            "scene_setup.blend": {
+                name: "scene_setup.blend",
+                icon: 'fas fa-cube text-orange-500',
+                type: 'binary',
+                versions: {
+                    v2: {
+                        time: "Yesterday 3:00 PM (V2 - Current)",
+                        content: null, // Binary content
+                        size: '45.6 MB',
+                        metadata: 'Blender 4.1 Project. Contains 3 models and 1 animation sequence.'
+                    },
+                    v1: {
+                        time: "Yesterday 11:00 AM (V1)",
+                        content: null,
+                        size: '30.1 MB',
+                        metadata: 'Blender 4.0 Project. Initial setup with lighting and camera.'
+                    }
+                }
+            },
+            "project_report.md": {
+                name: "project_report.md",
+                icon: 'fas fa-file-code text-indigo-500',
+                type: 'text',
+                versions: {
+                    v5: {
+                        time: "11:00 AM (V5 - Current)",
+                        content: `# Project Report - V5\n\n- Phase 1 Complete.\n+ Final review performed.`,
+                        size: '5.6 KB'
+                    },
+                    v4: {
+                        time: "10:00 AM (V4)",
+                        content: `# Project Report - V4\n\n- Phase 1 Complete.\n- Pending final review.`,
+                        size: '5.5 KB'
+                    }
+                }
+            }
+        };
+
+        // --- DOM Elements & State ---
+        const currentContentElement = document.getElementById('currentFileContent');
+        const backupContentElement = document.getElementById('backupFileContent');
+        const currentHeaderSpan = document.getElementById('currentVersionTime');
+        const backupHeaderSpan = document.getElementById('backupVersionTime');
+        const versionPillsContainer = document.getElementById('version-pills-container');
+        const fileListContainer = document.getElementById('file-list-container');
+        const currentFileNameDisplay = document.getElementById('currentFileNameDisplay');
+        const demoMessageBox = document.getElementById('demo-message');
+        const backupVersionActionsContainer = document.getElementById('backupVersionActions');
+        
+        // Global state to track currently selected file and version
+        let currentFileKey = 'meeting_notes_2024.txt';
+        let currentBackupVersionKey = null; // Will be set to the latest non-current version
+
+        // --- Core Functions ---
+
+        /**
+         * Renders content string into styled diff HTML based on line markers (+/-).
+         */
+        function styleDiffContent(content, isBackupPane) {
+            if (!content) return '';
+
+            return content.split('\n').map(line => {
+                let marker = '';
+                let contentText = line;
+                let lineClass = '';
+                
+                // Identify markers
+                if (line.trim().startsWith('+')) {
+                    marker = '+';
+                    // In the current (left) pane, '+' means ADDED
+                    // In the backup (right) pane, '+' means REMOVED (it was there, now it's not)
+                    lineClass = isBackupPane ? 'diff-removed' : 'diff-added';
+                    contentText = line.substring(line.indexOf('+') + 1);
+                } else if (line.trim().startsWith('-')) {
+                    marker = '-';
+                    // In the current (left) pane, '-' means REMOVED (it was there, now it's not)
+                    // In the backup (right) pane, '-' means ADDED (it's here, but missing in current)
+                    lineClass = isBackupPane ? 'diff-added' : 'diff-removed';
+                    contentText = line.substring(line.indexOf('-') + 1);
+                }
+                
+                const safeContent = contentText.trim() || '&nbsp;'; 
+
+                return `
+                    <div class="diff-line ${lineClass}">
+                        <span class="diff-line-marker">${marker || ''}</span>
+                        <span class="diff-line-content">${safeContent}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        /**
+         * Renders metadata view for binary files.
+         */
+        function renderMetadataView(version) {
+            return `
+                <div class="p-6 h-full flex flex-col items-center justify-center text-center text-gray-600 bg-white rounded-xl">
+                    <i class="fas fa-file-archive text-5xl text-indigo-400 mb-4"></i>
+                    <p class="text-lg font-semibold mb-2">${currentFileKey}</p>
+                    <p class="text-sm">This is a binary file (e.g., .blend, .jpg, .zip). Textual content comparison is not available.</p>
+                    <div class="mt-4 p-3 bg-gray-50 rounded-lg w-full max-w-sm">
+                        <p class="text-xs font-medium text-gray-700">Version Time: ${version.time}</p>
+                        <p class="text-xs font-medium text-gray-700">Size: ${version.size}</p>
+                        ${version.metadata ? `<p class="text-xs mt-1 italic">${version.metadata}</p>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        /**
+         * Switches the content displayed in the backup (right) pane for comparison.
+         * The current (left) pane always shows the latest version of the selected file.
+         * @param {string} versionKey - The version key (e.g., 'v2', 'v1').
+         */
+        function switchVersion(versionKey) {
+            const file = fileData[currentFileKey];
+            if (!file) return;
+
+            // Determine latest (current) version key
+            const latestVersionKey = Object.keys(file.versions)[0];
+            const currentVersion = file.versions[latestVersionKey];
+            const selectedVersion = file.versions[versionKey];
+
+            if (!selectedVersion) return;
+
+            currentBackupVersionKey = versionKey;
+            
+            // 1. Update the display times
+            currentHeaderSpan.textContent = currentVersion.time;
+            backupHeaderSpan.textContent = selectedVersion.time;
+
+            // 2. Handle Content Display (Diff or Metadata)
+            if (file.type === 'text') {
+                // For text, we show a simulated diff
+                currentContentElement.innerHTML = styleDiffContent(currentVersion.content, false); 
+                backupContentElement.innerHTML = styleDiffContent(selectedVersion.content, true);
+            } else {
+                // For binary, we show metadata view
+                const currentMetadata = renderMetadataView(currentVersion);
+                const backupMetadata = renderMetadataView(selectedVersion);
+                
+                currentContentElement.innerHTML = currentMetadata;
+                backupContentElement.innerHTML = backupMetadata;
+            }
+
+
+            // 3. Update active pill CSS (Visual only)
+            document.querySelectorAll('.version-pill').forEach(pill => {
+                pill.classList.remove('bg-indigo-600', 'text-white', 'shadow-md');
+                pill.classList.add('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300');
+            });
+
+            const activePill = document.querySelector(`.version-pill[data-version="${versionKey}"]`);
+            if (activePill) {
+                activePill.classList.remove('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300');
+                activePill.classList.add('bg-indigo-600', 'text-white', 'shadow-md');
+            }
+        }
+        
+        /**
+         * Renders the list of versions for the current file.
+         */
+        function renderVersionPills() {
+            const file = fileData[currentFileKey];
+            if (!file) return;
+
+            versionPillsContainer.innerHTML = ''; // Clear previous pills
+            const versionKeys = Object.keys(file.versions);
+            const latestVersionKey = versionKeys[0];
+            
+            // Iterate over all versions
+            versionKeys.forEach((key, index) => {
+                const version = file.versions[key];
+                const isLatest = (key === latestVersionKey);
+                
+                // Determine initial active state
+                let isActive = false;
+                if (!currentBackupVersionKey && !isLatest) {
+                    // Default to selecting the second-latest version as the initial backup version
+                    if (index === 1) { 
+                        isActive = true;
+                        currentBackupVersionKey = key;
+                    }
+                } else if (key === currentBackupVersionKey) {
+                    isActive = true;
+                }
+
+                // Skip showing the latest version as a selectable "backup" pill
+                if (isLatest) return;
+
+                const pillHtml = `
+                    <span data-version="${key}" class="version-pill px-3 py-1 text-xs font-medium rounded-full cursor-pointer shadow-sm whitespace-nowrap ${isActive ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">
+                        <i class="fas fa-clock mr-1"></i> ${version.time.replace(/\(V\d\s-\sCurrent\)/, '').trim()} (${key.toUpperCase()})
+                    </span>
+                `;
+                versionPillsContainer.insertAdjacentHTML('beforeend', pillHtml);
+            });
+            
+            // If no versions were set as active (e.g., only one version exists, or only two), select the second-latest one.
+            if (!currentBackupVersionKey) {
+                 currentBackupVersionKey = versionKeys[1] || versionKeys[0];
+            }
+        }
+
+
+        /**
+         * Renders the list of files in the sidebar.
+         */
+        function renderFileList() {
+            fileListContainer.innerHTML = ''; // Clear previous list
+            Object.values(fileData).forEach(file => {
+                const versionCount = Object.keys(file.versions).length;
+                const isActive = (file.name === currentFileKey) ? 'active' : '';
+
+                const fileItemHtml = `
+                    <div class="file-item flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors border-l-4 border-transparent hover:border-indigo-500 ${isActive}" data-file="${file.name}">
+                        <div class="flex items-center">
+                            <i class="${file.icon} mr-3"></i>
+                            <span class="text-sm font-medium truncate">${file.name}</span>
+                        </div>
+                        <span class="text-xs text-gray-400">${versionCount} versions</span>
+                    </div>
+                `;
+                fileListContainer.insertAdjacentHTML('beforeend', fileItemHtml);
+            });
+        }
+        
+        /**
+         * Handles selecting a new file from the sidebar.
+         * @param {string} fileName - The key of the file to select.
+         */
+        function selectFile(fileName) {
+            // Check if already selected, but allow re-selection to refresh state
+            if (currentFileKey === fileName && currentBackupVersionKey) return; 
+            
+            currentFileKey = fileName;
+            currentFileNameDisplay.textContent = fileName;
+            currentBackupVersionKey = null; // Reset version selection
+            
+            renderFileList();
+            renderVersionPills();
+            
+            // Initialize comparison view with the newly selected file and its default version
+            if (currentBackupVersionKey) {
+                switchVersion(currentBackupVersionKey);
+            } else {
+                // Fallback for files with only one version (shouldn't happen in this demo structure but good practice)
+                const latestKey = Object.keys(fileData[fileName].versions)[0];
+                switchVersion(latestKey);
+            }
+        }
+
+        /**
+         * Handles the click on the action menu items.
+         */
+        function handleVersionAction(action, versionKey) {
+            const version = fileData[currentFileKey].versions[versionKey];
+            const versionTime = version.time;
+            const fileName = currentFileKey;
+
+            let message = '';
+            let isError = false;
+
+            if (action === 'open') {
+                message = `Opening version ${versionTime} of ${fileName} for viewing... (Simulated)`;
+            } else if (action === 'open-location') {
+                message = `Opening backup location for ${fileName} version ${versionTime}... (Simulated)`;
+            } else if (action === 'restore') {
+                message = `Restoring ${fileName} with content from ${versionTime}. (Simulated)`;
+            } else {
+                isError = true;
+                message = `Error: Unknown action attempted.`;
+            }
+
+            // Show message box
+            demoMessageBox.querySelector('span').textContent = message;
+            demoMessageBox.classList.remove('opacity-0', 'pointer-events-none', 'bg-green-500', 'bg-red-500');
+            demoMessageBox.classList.add('opacity-100', isError ? 'bg-red-500' : 'bg-green-500');
+            demoMessageBox.querySelector('i').className = isError ? 'fas fa-exclamation-circle mr-2' : 'fas fa-check-circle mr-2';
+
+            // Hide message box after 3 seconds
+            setTimeout(() => {
+                demoMessageBox.classList.remove('opacity-100');
+                demoMessageBox.classList.add('opacity-0', 'pointer-events-none');
+            }, 3000);
+        }
+        
+        // --- View Switching (Existing Logic) ---
+        
+        const mainHeaderTitle = document.getElementById('main-header-title');
+        const headerActions = document.getElementById('header-actions');
+        const navLinks = document.querySelectorAll('.nav-link');
+        const viewContents = document.querySelectorAll('.view-content');
+
+        function switchMainView(viewId) {
+            navLinks.forEach(link => {
+                const isCurrent = link.getAttribute('data-view') === viewId;
+                link.classList.toggle('text-white', isCurrent);
+                link.classList.toggle('bg-indigo-600', isCurrent);
+                link.classList.toggle('shadow-md', isCurrent);
+                link.classList.toggle('text-gray-700', !isCurrent);
+                link.classList.toggle('hover:bg-gray-100', !isCurrent);
+            });
+
+            viewContents.forEach(view => {
+                view.classList.toggle('active', view.id === `${viewId}-view`);
+            });
+
+            let title = '';
+            let actionsHtml = '';
+            
+            if (viewId === 'file-system') {
+                title = 'Current Path: /home/user/Documents/';
+                actionsHtml = `
+                    <button class="bg-indigo-100 text-indigo-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-indigo-200 transition-colors">
+                        <i class="fas fa-redo-alt mr-2"></i> Rescan Files
+                    </button>
+                    <div class="text-sm text-gray-600">Last Backup: 5 minutes ago</div>
+                `;
+            } else if (viewId === 'settings') {
+                title = 'Application Preferences';
+                actionsHtml = `
+                    <button class="bg-gray-200 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors">
+                        <i class="fas fa-save mr-2"></i> Save Settings
+                    </button>
+                `;
+            } else if (viewId === 'restore-log') {
+                title = 'Activity History';
+                actionsHtml = `
+                    <button class="bg-gray-200 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors">
+                        <i class="fas fa-file-export mr-2"></i> Export Log
+                    </button>
+                `;
+            }
+
+            mainHeaderTitle.textContent = title;
+            headerActions.innerHTML = actionsHtml;
+        }
+
+
+        // --- Initialization ---
+
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            // 1. File Selection Listener
+            fileListContainer.addEventListener('click', (event) => {
+                const fileItem = event.target.closest('.file-item');
+                if (fileItem) {
+                    const fileName = fileItem.getAttribute('data-file');
+                    selectFile(fileName);
+                }
+            });
+            
+            // 2. Version Pills Listener: Switch diff content
+            versionPillsContainer.addEventListener('click', (event) => {
+                const pill = event.target.closest('.version-pill');
+                if (pill) {
+                    const versionKey = pill.getAttribute('data-version');
+                    switchVersion(versionKey); 
+                }
+            });
+
+            // 3. Backup Version Actions Listener
+            backupVersionActionsContainer.addEventListener('click', (event) => {
+                const actionButton = event.target.closest('.action-btn');
+                if (actionButton && currentBackupVersionKey) {
+                    const action = actionButton.getAttribute('data-action');
+                    handleVersionAction(action, currentBackupVersionKey);
+                }
+            });
+
+            // 4. Navigation listener for sidebar links
+            navLinks.forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const view = link.getAttribute('data-view');
+                    switchMainView(view);
+                });
+            });
+            
+            // Initialize the default view: Select the first file and render UI
+            currentFileKey = Object.keys(fileData)[0]; // Ensure we start with a key
+            switchMainView('file-system');
+            selectFile(currentFileKey); // Initializes the file list, versions, and content.
+        });
+    </script>
+</body>
+</html>

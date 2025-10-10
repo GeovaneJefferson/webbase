@@ -177,6 +177,16 @@
     transform: translateX(2px);
 }
 
+/* Action Button Blinking */
+/* .action-btn.blinking {
+    animation: blinker 2s linear infinite;
+}
+
+@keyframes blinker {
+    50% {
+        opacity: 0;
+    }
+} */
 /* ======================
    SCROLLBARS
    ====================== */

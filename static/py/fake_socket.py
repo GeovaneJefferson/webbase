@@ -10,7 +10,7 @@ from datetime import datetime
 # as app.py is responsible for creating and listening on the UNIX socket.
 
 # This configuration must match the socket path defined in your `app.py`.
-APP_NAME_CLOSE_LOWER = "dataguardian"
+APP_NAME_CLOSE_LOWER = "timemachine"
 SOCKET_PATH = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), f"{APP_NAME_CLOSE_LOWER}-ui.sock")
 
 def send_message(sock, message_dict):

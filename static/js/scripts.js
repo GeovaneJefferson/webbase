@@ -1,102 +1,111 @@
 // =============================================
 // APPLICATION STATE
 // =============================================
-const AppState = {
-    backup: {
-        running: true,
-        progress: 65,
-        processedFiles: 342,
-        totalFiles: 526
-    },
-    intervals: {
-        backup: null,
-        device: null,
-        storage: null
-    },
-    selectedDevice: null
-};
+class AppState {
+    constructor() {
+        this.backup = {
+            running: true,
+            progress: 65,
+            processedFiles: 342,
+            totalFiles: 526
+        };
+        this.intervals = {
+            backup: null,
+            device: null,
+            storage: null
+        };
+        this.selectedDevice = null;
+    }
+}
+
+const appState = new AppState();
 
 // =============================================
 // DOM ELEMENTS
 // =============================================
-const Elements = {
-    backupLocation: document.getElementById('backupLocation'),
-    sourceLocation: document.getElementById('sourceLocation'),
+class Elements {
+    constructor() {
+        this.backupLocation = document.getElementById('backupLocation');
+        this.sourceLocation = document.getElementById('sourceLocation');
 
-    backupProgress: document.getElementById('backupProgress'),
-    backupUsage: document.getElementById('backupUsage'),
+        this.backupProgress = document.getElementById('backupProgress');
+        this.backupUsage = document.getElementById('backupUsage');
 
-    homeUsage: document.getElementById('homeUsage'),
-    
-    deviceUsed: document.getElementById('deviceUsed'),
-    deviceFree: document.getElementById('deviceFree'),
-    deviceTotal: document.getElementById('deviceTotal'),
+        this.homeUsage = document.getElementById('homeUsage');
+        
+        this.deviceUsed = document.getElementById('deviceUsed');
+        this.deviceFree = document.getElementById('deviceFree');
+        this.deviceTotal = document.getElementById('deviceTotal');
 
-    devicesContainer: document.getElementById('devicesContainer'),
-    selectedDevicePath: document.getElementById('selectedDevicePath'),
-    selectedDeviceStats: document.getElementById('selectedDeviceStats'),
-    selectedDeviceInfo: document.getElementById('selectedDeviceInfo'),
-    
-    devicesName: document.getElementById('devicesName'),
-    deviceMountPoint: document.getElementById('deviceMountPoint'),
-    devicesFilesystem: document.getElementById('devicesFilesystem'),
-    devicesModel: document.getElementById('devicesModel'),
-    devicesUsageBar: document.getElementById('devicesUsageBar'),
+        this.devicesContainer = document.getElementById('devicesContainer');
+        this.selectedDevicePath = document.getElementById('selectedDevicePath');
+        this.selectedDeviceStats = document.getElementById('selectedDeviceStats');
+        this.selectedDeviceInfo = document.getElementById('selectedDeviceInfo');
+        
+        this.devicesName = document.getElementById('devicesName');
+        this.deviceMountPoint = document.getElementById('deviceMountPoint');
+        this.devicesFilesystem = document.getElementById('devicesFilesystem');
+        this.devicesModel = document.getElementById('devicesModel');
+        this.devicesUsageBar = document.getElementById('devicesUsageBar');
 
+        this.imagesCount = document.getElementById('imagesCount');
+        this.documentsCount = document.getElementById('documentsCount');
+        this.videosCount = document.getElementById('videosCount');
+        this.otherCount = document.getElementById('otherCount');
 
-    imagesCount: document.getElementById('imagesCount'),
-    documentsCount: document.getElementById('documentsCount'),
-    videosCount: document.getElementById('videosCount'),
-    otherCount: document.getElementById('otherCount'),
+        this.imagesSize = document.getElementById('imagesSize');
+        this.documentsSize = document.getElementById('documentsSize');
+        this.videosSize = document.getElementById('videosSize');
+        this.otherSize = document.getElementById('otherSize');
 
-    imagesSize: document.getElementById('imagesSize'),
-    documentsSize: document.getElementById('documentsSize'),
-    videosSize: document.getElementById('videosSize'),
-    otherSize: document.getElementById('otherSize'),
+        this.logContainer = document.getElementById('logContainer');
+        this.leftSidebar = document.getElementById('leftSidebar');
+        this.mainTitle = document.getElementById('mainTitle');
 
-    logContainer: document.getElementById('logContainer'),
-    leftSidebar: document.getElementById('leftSidebar'),
-    mainTitle: document.getElementById('mainTitle'),
-    searchInput: document.getElementById('searchInput'),
-    searchResults: document.getElementById('searchResults'),
-    deviceInfoSection: document.getElementById('deviceInfoSection'),
-};
+        this.searchInput = document.getElementById('searchInput');
+        this.deviceInfoSection = document.getElementById('deviceInfoSection');
+        this.rightSidebar = document.getElementById('rightSidebar');
+
+    }
+}
+
+const elements = new Elements();
 
 // =============================================
 // UTILITY FUNCTIONS
 // =============================================
-const Utils = {
-    formatBytes: (bytes, decimals = 2) => {
+class Utils {
+    static formatBytes(bytes, decimals = 2) {
         if (bytes === 0) return '0 Bytes';
         const k = 1024;
         const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[i];
-    },
+    };
 
-    getDeviceIcon: (device) => {
+    static getDeviceIcon(device) {
         if (!device) return 'fas fa-usb';
         if (device.device?.includes('nvme')) return 'fas fa-solid fa-memory';
         if (device.device?.includes('sd') || device.device?.includes('hd')) return 'fas fa-hdd';
         if (device.device?.includes('mmc')) return 'fas fa-sd-card';
         return 'fas fa-usb';
-    },
+    };
 
-    getDeviceIconClass: (device) => {
+    static getDeviceIconClass(device) {
         if (!device || !device.total || device.total === 0) return 'bg-gray-100 text-gray-600';
         const freePercent = (device.total - device.used) / device.total;
         if (freePercent < 0.2) return 'bg-red-100 text-red-600';
         if (freePercent < 0.5) return 'bg-yellow-100 text-yellow-600';
         return 'bg-green-100 text-green-600';
-    },
-
-    getUsageColorClass: (percent) => {
+    };
+    
+    static getUsageColorClass(percent) {
         if (percent > 90) return 'bg-red-500';
         if (percent > 70) return 'bg-yellow-500';
         return 'bg-green-500';
-    },
+    }
 
-    handleResponse: (response) => {
+    static handleResponse(response) {
         if (response.status === 204) {  // Handle no-content responses
             return null;
         }
@@ -105,16 +114,18 @@ const Utils = {
         return response.json().then(data => {
             // Then check for success flag if the endpoint uses it
             if (data.hasOwnProperty('success') && !data.success) {
-                throw new Error(data.error || 'Request failed');
+                const errorMsg = data.error || 'Request failed';
+                console.error('API error:', errorMsg); // Log the error for debugging
+                throw new Error(errorMsg);
             }
             return data;
         }).catch(error => {
             console.error('Response parsing error:', error);
             throw error;
         });
-    },
+    }
 
-    getFileThumbnail: (filename) => {
+    static getFileThumbnail(filename) {
         const ext = filename.split('.').pop().toLowerCase();
         const thumbnails = {
             pdf: { bg: 'bg-red-50', icon: 'fa-file-pdf', color: 'text-red-600' },
@@ -123,6 +134,9 @@ const Utils = {
             xls: { bg: 'bg-green-50', icon: 'fa-file-excel', color: 'text-green-600' },
             xlsx: { bg: 'bg-green-50', icon: 'fa-file-excel', color: 'text-green-600' },
             jpg: { bg: 'bg-purple-50', icon: 'fa-file-image', color: 'text-purple-600' },
+            jpeg: { bg: 'bg-purple-50', icon: 'fa-file-image', color: 'text-purple-600' },
+            gif: { bg: 'bg-purple-50', icon: 'fa-file-image', color: 'text-purple-600' },
+            png: { bg: 'bg-purple-50', icon: 'fa-file-image', color: 'text-purple-600' },
             png: { bg: 'bg-purple-50', icon: 'fa-file-image', color: 'text-purple-600' },
             default: { bg: 'bg-gray-50', icon: 'fa-file', color: 'text-gray-600' }
         };
@@ -133,7 +147,7 @@ const Utils = {
 
 // =============================================
 // DIFF MANAGER
-// =============================================
+// ============================================
 const DiffManager = {
     currentFile: null,
     versions: [],
@@ -383,14 +397,15 @@ const BackupManager = {
         fetch('/api/backup/usage')
             .then(response => response.json())
             .then(data => {
+
                 if (data.success) {
                     BackupManager.updateUI(data);
                 } else {
                     // Show friendly error in UI
-                    Elements.backupLocation.innerHTML = `
+                    elements.backupLocation.innerHTML = `
                         <span class="text-red-500">⚠️ Action Required</span>
                     `;
-                    Elements.backupUsage.innerHTML = `
+                    elements.backupUsage.innerHTML = `
                         <div class="text-sm">
                             ${data.error}
                             <button onclick="Navigation.showSection('devices')" 
@@ -401,46 +416,46 @@ const BackupManager = {
                     `;
                     
                     // Visual indicator
-                    Elements.backupProgress.style.width = "0%";
-                    Elements.backupProgress.className = 'h-2 rounded-full bg-yellow-500';
+                    elements.backupProgress.style.width = "0%";
+                    elements.backupProgress.className = 'h-2 rounded-full bg-yellow-500';
                     
                     // Only show alert for first occurrence
                     if (!AppState.backup.errorShown) {
-                        alert(`Setup Required:\n\n${data.error}`);
+                        alert(`Setup Required:\n\n${data.error}`);        
                         AppState.backup.errorShown = true;
                     }
                 }
             })
             .catch(error => {
                 console.error('Backup usage check failed:', error);
-                Elements.backupUsage.textContent = 
+                elements.backupUsage.textContent = 
                     "Connection error. Please refresh the page.";
             });
     },
 
     updateUI: (data) => {
-        if (data.success) {
+      if (data.success) {
             const displayLocation = data.location.replace(/\\/g, '/').replace(/\/$/, '');
-            Elements.backupLocation.textContent = displayLocation;
+            elements.backupLocation.textContent = displayLocation;
             sourceLocation.textContent = data.users_home_path;  // Users $USER
-            
+
             // User's home(Hdd/Ssd) usage
             homeUsage.textContent = `${data.home_human_used} used of ${data.home_human_total} (${data.home_percent_used}% used)`;
             // homeUsage.className = 'h-2 rounded-full';
             // homeUsage.classList.add(Utils.getUsageColorClass(data.home_percent_used));
-
+ 
             // Backup device info
             deviceMountPoint.textContent = displayLocation;
-            Elements.backupProgress.style.width = `${data.percent_used}%`;
-            Elements.backupUsage.textContent = 
+            elements.backupProgress.style.width = `${data.percent_used}%`;
+            elements.backupUsage.textContent = 
                 `${data.human_used} used of ${data.human_total} (${data.percent_used}% used)`;
-
-            Elements.deviceUsed.textContent = `${data.home_human_used}`;
-            Elements.deviceFree.textContent = `${data.home_human_free}`;
-            Elements.deviceTotal.textContent = `${data.home_human_total}`;
-
-            Elements.backupProgress.className = 'h-2 rounded-full';
-            Elements.backupProgress.classList.add(Utils.getUsageColorClass(data.percent_used));
+ 
+            elements.deviceUsed.textContent = `${data.home_human_used}`;
+            elements.deviceFree.textContent = `${data.home_human_free}`;
+            elements.deviceTotal.textContent = `${data.home_human_total}`;
+ 
+            elements.backupProgress.className = 'h-2 rounded-full';
+            elements.backupProgress.classList.add(Utils.getUsageColorClass(data.percent_used));
             
             // Update the UI with the devices used space
             devicesUsageBar.style.width = `${data.percent_used}%`;  // Used space bar
@@ -453,6 +468,10 @@ const BackupManager = {
                 const documentsCategory = data.summary.categories.find(cat => cat.name === "Document");
                 const videosCategory = data.summary.categories.find(cat => cat.name === "Video");
                 const otherCategory = data.summary.categories.find(cat => cat.name === "Others");
+                
+                // Debug
+                console.log(elements.imagesCount.textContent);
+            
                 // Images
                 if (imagesCategory)
                     imagesCount.textContent = `${imagesCategory.count.toLocaleString()} files`;
@@ -471,10 +490,10 @@ const BackupManager = {
                     otherSize.textContent = `${otherCategory.size_str.toLocaleString()} files`;
             }
         } else {
-            Elements.backupLocation.textContent = "Error";
-            Elements.backupUsage.textContent = `Error: ${data.error || 'Unknown error'}`;
-            Elements.backupProgress.style.width = '0%';
-            Elements.backupProgress.className = 'h-2 rounded-full bg-gray-500';
+            elements.backupLocation.textContent = "Error";
+            elements.backupUsage.textContent = `Error: ${data.error || 'Unknown error'}`;
+            elements.backupProgress.style.width = '0%';
+            elements.backupProgress.className = 'h-2 rounded-full bg-gray-500';
         }
     },
 
@@ -488,16 +507,16 @@ const BackupManager = {
             if (AppState.backup.progress > 100) {
                 AppState.backup.progress = 100;
                 AppState.backup.processedFiles = AppState.backup.totalFiles;
-                Elements.backupStatusText.textContent = "Backup completed successfully";
-                Elements.progressBar.classList.replace('bg-indigo-600', 'bg-green-500');
-                Elements.etaTime.textContent = "Completed";
-                Elements.currentFile.textContent = "All files processed";
+                elements.backupStatusText.textContent = "Backup completed successfully";
+                elements.progressBar.classList.replace('bg-indigo-600', 'bg-green-500');
+                elements.etaTime.textContent = "Completed";
+                elements.currentFile.textContent = "All files processed";
                 clearInterval(AppState.intervals.backup);
             } else {
-                Elements.progressBar.style.width = AppState.backup.progress + '%';
-                Elements.processedFiles.textContent = 
+                elements.progressBar.style.width = AppState.backup.progress + '%';
+                elements.processedFiles.textContent = 
                     `Processing: ${AppState.backup.processedFiles} of ${AppState.backup.totalFiles} files`;
-                Elements.etaTime.textContent = 
+                elements.etaTime.textContent = 
                     `ETA: ${Math.floor((100 - AppState.backup.progress) * 0.2)} minutes`;
                 
                 if (AppState.backup.progress % 5 === 0) {
@@ -506,7 +525,7 @@ const BackupManager = {
                         "C:\\Users\\Documents\\Reports\\Q3_Report.docx",
                         "C:\\Users\\Documents\\Presentations\\Product_Launch.pptx"
                     ];
-                    Elements.currentFile.textContent = 
+                    elements.currentFile.textContent = 
                         files[Math.floor(Math.random() * files.length)];
                 }
             }
@@ -574,9 +593,9 @@ const BackupManager = {
 
     stop: () => {
         clearInterval(AppState.intervals.backup);
-        Elements.backupStatusText.textContent = "Backup stopped by user";
-        Elements.progressBar.classList.replace('bg-indigo-600', 'bg-red-500');
-        Elements.etaTime.textContent = "Stopped";
+        elements.backupStatusText.textContent = "Backup stopped by user";
+        elements.progressBar.classList.replace('bg-indigo-600', 'bg-red-500');
+        elements.etaTime.textContent = "Stopped";
         document.getElementById('pauseBackupBtn').innerHTML = 
             '<i class="fas fa-play mr-2"></i><span>Start Backup</span>';
         AppState.backup.running = false;
@@ -588,7 +607,7 @@ const BackupManager = {
 // =============================================
 const DeviceManager = {
     load: () => {
-        Elements.devicesContainer.innerHTML = '<div class="text-gray-500 py-4">Scanning for devices...</div>';
+        elements.devicesContainer.innerHTML = '<div class="text-gray-500 py-4">Scanning for devices...</div>';
         
         fetch('/api/storage/devices')
             .then(Utils.handleResponse)
@@ -605,12 +624,12 @@ const DeviceManager = {
     },
 
     render: (devices) => {
-        Elements.devicesContainer.innerHTML = '';
+        elements.devicesContainer.innerHTML = '';
         
         devices.forEach(device => {
             const normalized = DeviceManager.normalize(device);
             const card = DeviceManager.createCard(normalized);
-            Elements.devicesContainer.appendChild(card);
+            elements.devicesContainer.appendChild(card);
         });
         
         DeviceManager.setupSelection();
@@ -706,13 +725,13 @@ const DeviceManager = {
         const { path, info } = AppState.selectedDevice;
         const percentUsed = Math.round((info.used / info.total) * 100);
         
-        Elements.selectedDevicePath.textContent = path;
-        Elements.selectedDeviceStats.innerHTML = `
+        elements.selectedDevicePath.textContent = path;
+        elements.selectedDeviceStats.innerHTML = `
             ${Utils.formatBytes(info.free)} free of ${Utils.formatBytes(info.total)} •
             ${percentUsed}% used •
             ${info.filesystem || 'Unknown FS'}
         `;
-        Elements.selectedDeviceInfo.classList.remove('hidden');
+        elements.selectedDeviceInfo.classList.remove('hidden');
     },
 
     // Save the selected device configuration
@@ -749,7 +768,7 @@ const DeviceManager = {
     },
 
     showNoDevices: () => {
-        Elements.devicesContainer.innerHTML = `
+        elements.devicesContainer.innerHTML = `
             <div class="text-center py-8">
                 <i class="fas fa-hdd text-gray-300 text-4xl mb-2"></i>
                 <div class="text-gray-500">No storage devices found</div>
@@ -759,7 +778,7 @@ const DeviceManager = {
     },
 
     showError: (error) => {
-        Elements.devicesContainer.innerHTML = `
+        elements.devicesContainer.innerHTML = `
             <div class="text-center py-8 text-red-500">
                 <i class="fas fa-exclamation-triangle text-xl mb-2"></i>
                 <div>Error loading devices</div>
@@ -784,7 +803,7 @@ const DeviceManager = {
         fetch('/api/backup/current-device')
             .then(Utils.handleResponse)
             .then(data => {
-                if (data.success && data.device_path) {
+                if (typeof data === 'object' && data && data.success && data.device_path) {
                     const currentDeviceCard = document.querySelector(
                         `.device-card[data-device-path="${data.device_path}"]`
                     );
@@ -838,7 +857,12 @@ const Navigation = {
         // Update main title
         const activeNavItem = document.querySelector(`.nav-item[data-section="${section}"] span`);
         if (activeNavItem) {
-            Elements.mainTitle.textContent = activeNavItem.textContent;
+            elements.mainTitle.textContent = activeNavItem.textContent;
+        }
+
+        // Show/hide right sidebar based on section
+        if (elements.rightSidebar) {
+            elements.rightSidebar.classList.toggle('hidden', section !== 'overview');
         }
     }
 };
@@ -853,12 +877,14 @@ const UIControls = {
         // document.getElementById('pauseBackupBtn2').addEventListener('click', BackupManager.toggle);  // TO DELETE
         // document.getElementById('stopBackupBtn').addEventListener('click', BackupManager.stop);  // TO DELETE
         
-        // Sidebar toggle
-        document.getElementById('toggleSidebar').addEventListener('click', UIControls.toggleSidebar);
-        
         // Search functionality
-        Elements.searchInput.addEventListener('input', UIControls.handleSearch);
-        
+        // Elements.searchInput.addEventListener('input', (event) => {
+        //     clearTimeout(searchTimeout); // Clear previous timeout
+        //     const query = event.target.value;
+        //     searchTimeout = setTimeout(() => {
+        //         performSearch(query);
+        //     }, SEARCH_DEBOUNCE_DELAY);
+        // });
         // Device management
         document.getElementById('refreshDevicesBtn').addEventListener('click', DeviceManager.load);
         document.getElementById('confirmSelectionBtn').addEventListener('click', DeviceManager.confirmSelection);
@@ -886,25 +912,17 @@ const UIControls = {
         //     runScriptButton.addEventListener('click', BackupManager.runMyScript);
     },
 
-    toggleSidebar: () => {
-        const icon = document.getElementById('toggleSidebar').querySelector('i');
-        Elements.leftSidebar.classList.toggle('sidebar-collapsed');
-        
-        if (Elements.leftSidebar.classList.contains('sidebar-collapsed')) {
-            icon.classList.replace('fa-chevron-left', 'fa-chevron-right');
-        } else {
-            icon.classList.replace('fa-chevron-right', 'fa-chevron-left');
-        }
-    },
+    setupToggles: () => {
+        const watchedFoldersToggle = document.getElementById('watchedFoldersToggle');
+        const watchedFoldersContent = document.getElementById('watchedFoldersContent');
+        const watchedFoldersToggleIcon = document.getElementById('watchedFoldersToggleIcon');
 
-    handleSearch: () => {
-        const searchTerm = Elements.searchInput.value.toLowerCase();
-        
-        if (searchTerm.length > 0) {
-            Elements.searchResults.innerHTML = '';
-            // Generate and display search results
-        } else {
-            // Show default files
+        if (watchedFoldersToggle && watchedFoldersContent && watchedFoldersToggleIcon) {
+            watchedFoldersToggle.addEventListener('click', () => {
+                watchedFoldersContent.classList.toggle('hidden');
+                watchedFoldersToggleIcon.classList.toggle('fa-chevron-down');
+                watchedFoldersToggleIcon.classList.toggle('fa-chevron-up');
+            });
         }
     }
 };
@@ -1319,9 +1337,323 @@ const ActivityManager = {
     }
 };
 
-// Initialize when DOM is ready
+// =============================================
+// FILE SECTION
+// =============================================
+// --- DOM Elements & State ---
+const currentContentElement = document.getElementById('currentFileContent');
+const backupContentElement = document.getElementById('backupFileContent');
+const currentHeaderSpan = document.getElementById('currentVersionTime');
+const backupHeaderSpan = document.getElementById('backupVersionTime');
+const versionPillsContainer = document.getElementById('version-pills-container');
+const fileListContainer = document.getElementById('file-list-container');
+const currentFileNameDisplay = document.getElementById('currentFileNameDisplay');
+const demoMessageBox = document.getElementById('demo-message');
+const backupVersionActionsContainer = document.getElementById('backupVersionActions');
+const openFile = document.getElementById('openFileBtn');
+const openLocation = document.getElementById('openLocationBtn');
+
+// Global state to track currently selected file and version
+let currentFileKey = '';
+let currentBackupVersionKey = null; // Will be set to the latest non-current version
+
+
+/**
+ * Handles selecting a new file from the sidebar.
+ * @param {string} fileName - The key of the file to select.
+ */
+async function selectFile(fileName) {
+    let fileObj = null;
+    if (window.latestSearchResults) {
+        fileObj = window.latestSearchResults.find(f => f.name === fileName);
+    }
+    const filePath = fileObj && fileObj.path ? fileObj.path : fileName;
+
+    currentFileKey = fileName;
+    currentFileNameDisplay.textContent = fileName;
+    currentBackupVersionKey = null;
+
+    // Fetch versions from backend
+    const versionsArray = await fetchFileVersions(filePath);
+
+    // Convert array to object for compatibility with existing code
+    const versionsObj = {};
+    versionsArray.forEach((v, idx) => {
+        versionsObj[v.key || `v${idx+1}`] = v;
+    });
+    fileObj.versions = versionsObj;
+
+    // Render version pills for this file
+    renderVersionPills(fileObj);
+
+    // Select the latest version by default (latest datetime)
+    const versionsArr = Object.entries(fileObj.versions).map(([key, v]) => ({ key, ...v }));
+
+    // Sort by time descending (latest first)
+    versionsArr.sort((a, b) => {
+        let aTime = typeof a.time === 'number' ? a.time : parseVersionTime(a.time);
+        let bTime = typeof b.time === 'number' ? b.time : parseVersionTime(b.time);
+        return bTime - aTime;
+    });
+
+    if (versionsArr.length > 0) {
+        switchVersion(versionsArr[0].key); // Select the latest version by datetime
+    }
+    
+    // Fetch file content from backend and display in currentFileContent
+    fetch(`/api/file-content?file_path=${encodeURIComponent(filePath)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.content !== undefined) {
+                currentContentElement.textContent = data.content;
+            } else if (data.metadata) {
+                currentContentElement.innerHTML = renderMetadataView(data.metadata);
+            } else {
+                currentContentElement.textContent = 'Unable to load file content.';
+            }
+        })
+        .catch(error => {
+            console.error('Error loading file content:', error);
+            currentContentElement.textContent = 'Error loading file content.';
+        });
+}
+
+/**
+ * Renders the list of version pills for the selected file.
+ * Each pill represents a backup/version (e.g., "Yesterday 11:00 AM (V1)").
+ */
+function renderVersionPills(fileObj) {
+    versionPillsContainer.innerHTML = ''; // Clear previous pills
+    if (!fileObj || !fileObj.versions) return;
+
+    // Convert versions object to array for sorting
+    const versionsArr = Object.entries(fileObj.versions).map(([key, v]) => ({ key, ...v }));
+
+    // Sort by time descending (latest first)
+    versionsArr.sort((a, b) => {
+        // Handle both string and number time formats
+        let aTime = typeof a.time === 'number' ? a.time : parseVersionTime(a.time);
+        let bTime = typeof b.time === 'number' ? b.time : parseVersionTime(b.time);
+        return bTime - aTime;
+    });
+
+    versionsArr.forEach(version => {
+        let formattedTime = version.time;
+        if (typeof version.time === 'number') {
+            const date = new Date(version.time * 1000);
+            formattedTime = date.toLocaleString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            });
+        } else if (typeof version.time === 'string') {
+            const match = version.time.match(/^(\d{2})-(\d{2})-(\d{4}) (\d{2})-(\d{2})$/);
+            if (match) {
+                const [_, day, month, year, hour, minute] = match;
+                const date = new Date(`${year}-${month}-${day}T${hour}:${minute}:00`);
+                formattedTime = date.toLocaleString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                });
+            }
+        }
+        const pillHtml = `
+            <span data-version="${version.key}" class="version-pill px-3 py-1 text-xs font-medium rounded-full cursor-pointer shadow-sm whitespace-nowrap bg-gray-200 text-gray-700 hover:bg-gray-300">
+                <i class="fas fa-clock mr-1"></i> ${formattedTime}
+            </span>
+        `;
+        versionPillsContainer.insertAdjacentHTML('beforeend', pillHtml);
+    });
+}
+
+// Helper to parse "DD-MM-YYYY HH-mm" string to timestamp (seconds)
+function parseVersionTime(str) {
+    const match = str.match(/^(\d{2})-(\d{2})-(\d{4}) (\d{2})-(\d{2})$/);
+    if (match) {
+        const [_, day, month, year, hour, minute] = match;
+        return new Date(`${year}-${month}-${day}T${hour}:${minute}:00`).getTime() / 1000;
+    }
+    return 0;
+}
+
+/**
+ * Renders metadata view for binary files.
+ * @param {object} metadata - Metadata object from backend.
+ */
+function renderMetadataView(metadata) {
+    console.log('Rendering metadata view:', metadata);
+    return `
+        <div class="p-6 h-full flex flex-col items-center justify-center text-center text-gray-600 bg-white rounded-xl">
+            <i class="fas fa-file-archive text-5xl text-indigo-400 mb-4"></i>
+            <p class="text-lg font-semibold mb-2">${metadata.name || currentFileKey}</p>
+            <p class="text-sm">This is a binary file (e.g., .blend, .svg, .zip). Textual content comparison is not available.</p>
+            <div class="mt-4 p-3 bg-gray-50 rounded-lg w-full max-w-sm">
+                <p class="text-xs font-medium text-gray-700">Modified: ${metadata.mtime || ''}</p>
+                <p class="text-xs font-medium text-gray-700">Size: ${metadata.size || ''}</p>
+                ${metadata.type ? `<p class="text-xs mt-1 italic">Type: ${metadata.type}</p>` : ''}
+                ${metadata.metadata ? `<p class="text-xs mt-1 italic">${metadata.metadata}</p>` : ''}
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Switches the content displayed in the backup (right) pane for comparison.
+ * The current (left) pane always shows the latest version of the selected file.
+ * @param {string} versionKey - The version key (e.g., 'v2', 'v1').
+ */
+function switchVersion(versionKey) {
+    // Find the file object from latestSearchResults
+    let fileObj = null;
+    if (window.latestSearchResults) {
+        fileObj = window.latestSearchResults.find(f => f.name === currentFileKey);
+    }
+    if (!fileObj || !fileObj.versions) return;
+
+    // Determine latest (current) version key
+    const latestVersionKey = Object.keys(fileObj.versions)[0];
+    const currentVersion = fileObj.versions[latestVersionKey];
+    const selectedVersion = fileObj.versions[versionKey];
+
+    if (!selectedVersion) return;
+
+    currentBackupVersionKey = versionKey;
+
+    // 1. Update the display times
+    currentHeaderSpan.textContent = currentVersion.time;
+    backupHeaderSpan.textContent = selectedVersion.time;
+
+    // 2. Handle Content Display (Diff or Metadata)
+    if (fileObj.type === 'text') {
+        currentContentElement.innerHTML = styleDiffContent(currentVersion.content, false); 
+        backupContentElement.innerHTML = styleDiffContent(selectedVersion.content, true);
+    } else {
+        const currentMetadata = renderMetadataView(currentVersion);
+        const backupMetadata = renderMetadataView(selectedVersion);
+
+        currentContentElement.innerHTML = currentMetadata;
+        backupContentElement.innerHTML = backupMetadata;
+    }
+
+    // 3. Update active pill CSS (Visual only)
+    document.querySelectorAll('.version-pill').forEach(pill => {
+        pill.classList.remove('bg-indigo-600', 'text-white', 'shadow-md');
+        pill.classList.add('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300');
+    });
+
+    const activePill = document.querySelector(`.version-pill[data-version="${versionKey}"]`);
+    if (activePill) {
+        activePill.classList.remove('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300');
+        activePill.classList.add('bg-indigo-600', 'text-white', 'shadow-md');
+    }
+}
+
+function fetchFileVersions(filePath) {
+    return fetch(`/api/file-versions?file_path=${encodeURIComponent(filePath)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.versions) {
+                return data.versions;
+            } else {
+                console.error('Failed to fetch versions:', data.error);
+                return [];
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching file versions:', error);
+            return [];
+        });
+}
+
+
+
 document.addEventListener('DOMContentLoaded', () => {
     ActivityManager.init();
+
+    // Search
+    const searchInput = document.getElementById('searchInput'); 
+    
+    // Create a debounced version of fetchAndRenderFiles
+    // Adjust the delay (e.g., 500ms) as needed for your application's responsiveness
+    const debouncedPerformSearch = debounce(performSearch, 500); 
+
+    if (searchInput) {
+        searchInput.addEventListener('input', (event) => {
+            // Call the debounced function instead of the original directly
+            debouncedPerformSearch(event.target.value);
+        });
+    }
+
+    // Files section event listeners
+    // 1. File Selection Listener
+    fileListContainer.addEventListener('click', (event) => {
+        const fileItem = event.target.closest('.file-item');
+        if (fileItem) {
+            const fileName = fileItem.getAttribute('data-file');
+            selectFile(fileName);
+        }
+    });
+    
+    // 2. Version Pills Listener: Switch diff content
+    versionPillsContainer.addEventListener('click', (event) => {
+        const pill = event.target.closest('.version-pill');
+        if (pill) {
+            const versionKey = pill.getAttribute('data-version');
+            switchVersion(versionKey); 
+        }
+    });
+
+    // 3. Backup Version Actions Listener
+    backupVersionActionsContainer.addEventListener('click', (event) => {
+        const actionButton = event.target.closest('.action-btn');
+        if (actionButton && currentBackupVersionKey) {
+            const action = actionButton.getAttribute('data-action');
+            if (action === 'open-location') {
+                // Get the selected version's path
+                let fileObj = null;
+                if (window.latestSearchResults) {
+                    fileObj = window.latestSearchResults.find(f => f.name === currentFileKey);
+                }
+                if (!fileObj || !fileObj.versions) return;
+                const selectedVersion = fileObj.versions[currentBackupVersionKey];
+                if (!selectedVersion || !selectedVersion.path) return;
+
+                // Open the folder containing the selected version
+                const folderPath = selectedVersion.path.substring(0, selectedVersion.path.lastIndexOf('/'));
+                openPathInExplorer(folderPath);
+            } else {
+                handleVersionAction(action, currentBackupVersionKey);
+            }
+        }
+    });
+
+    openFile.addEventListener('click', () => {
+        // Get the full file path from the current file object
+        let fileObj = null;
+        if (window.latestSearchResults) {
+            fileObj = window.latestSearchResults.find(f => f.name === currentFileKey);
+        }
+        const filePath = fileObj && fileObj.path ? fileObj.path : currentFileKey;
+        openFileWithDefaultApp(filePath);
+    });
+
+
+
+    // // 4. Navigation listener for sidebar links
+    // navLinks.forEach(link => {
+    //     link.addEventListener('click', (e) => {
+    //         e.preventDefault();
+    //         const view = link.getAttribute('data-view');
+    //         switchMainView(view);
+    //     });
+    // });
 });
 
 // =============================================
@@ -1344,6 +1676,22 @@ const UIMessageHandler = {
                 case 'transfer_progress':
                      // TODO: Handle 'transfer_progress' if needed, e.g., update progress bars
                     break;
+                case 'scan_complete': // --- NEW: Handle scan completion message ---
+                    if (data.status === 'success') {
+                        console.log("File scan complete! Search input enabled.");
+                        elements.searchInput.disabled = false; // Enable the search input
+                        elements.searchInput.placeholder = "Search files..."; // Optional: Update placeholder
+                    } 
+                    else if (data.status === 'scanning') {
+                        console.log("Caching files...");
+                        elements.searchInput.disabled = true;  // Disable the search input
+                        elements.searchInput.placeholder = "Caching files...";
+                    }
+                    else {
+                        elements.searchInput.placeholder = `Error loading files: ${data.message || 'Unknown error'}`;
+                        console.error("File scan failed:", data.message);
+                    }
+                    break;
             }
         } catch (error) {
             console.error("Failed to parse message from server:", error);
@@ -1356,7 +1704,7 @@ const UIMessageHandler = {
 // =============================================
 const LogManager = {
     load: () => {
-        Elements.logContainer.innerHTML = '<div class="text-gray-500">Loading logs...</div>';
+        elements.logContainer.innerHTML = '<div class="text-gray-500">Loading logs...</div>';
         
         fetch('/api/logs')
             .then(Utils.handleResponse)
@@ -1365,7 +1713,7 @@ const LogManager = {
                     throw new Error(data.error || 'Unknown error loading logs');
                 }
                 
-                Elements.logContainer.innerHTML = '';
+                elements.logContainer.innerHTML = '';
                 
                 if (data.logs && data.logs.length > 0) {
                     data.logs.forEach(entry => {
@@ -1383,17 +1731,17 @@ const LogManager = {
                             <span class="${logClass}">${entry.message}</span>
                             ${entry.error ? `<div class="text-red-500 text-xs">Parse error: ${entry.error}</div>` : ''}
                         `;
-                        Elements.logContainer.appendChild(logElement);
+                        elements.logContainer.appendChild(logElement);
                     });
                 } else {
-                    Elements.logContainer.innerHTML = '<div class="text-gray-500">No log entries found</div>';
+                    elements.logContainer.innerHTML = '<div class="text-gray-500">No log entries found</div>';
                 }
                 
                 // Auto-scroll to bottom
-                Elements.logContainer.scrollTop = Elements.logContainer.scrollHeight;
+                elements.logContainer.scrollTop = elements.logContainer.scrollHeight;
             })
             .catch(error => {
-                Elements.logContainer.innerHTML = `<div class="text-red-500">Error loading logs: ${error.message}</div>`;
+                elements.logContainer.innerHTML = `<div class="text-red-500">Error loading logs: ${error.message}</div>`;
             });
     },
 
@@ -1405,7 +1753,7 @@ const LogManager = {
         refreshBtn.addEventListener('click', LogManager.load);
 
         exportBtn.addEventListener('click', () => {
-            const logContent = Array.from(Elements.logContainer.children)
+            const logContent = Array.from(elements.logContainer.children)
                 .map(el => el.textContent)
                 .join('\n');
             
@@ -1434,6 +1782,301 @@ const LogManager = {
 };
 
 // =============================================
+// SEARCH FUNCTIONALITY
+// =============================================
+// Function to format Unix timestamp to human-readable date (e.g., "Today, 9:15 AM" or "Jul 18, 2025, 9:15 AM")
+function formatTimestamp(timestamp) {
+    const date = new Date(timestamp * 1000); // Convert Unix timestamp (seconds) to milliseconds
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset time for comparison
+
+    const fileDate = new Date(date);
+    fileDate.setHours(0, 0, 0, 0);
+
+    const timeOptions = { hour: 'numeric', minute: 'numeric', hour12: true };
+    const timeString = date.toLocaleTimeString('en-US', timeOptions);
+
+    if (fileDate.getTime() === today.getTime()) {
+        return `Today, ${timeString}`;
+    } else {
+        const dateOptions = { year: 'numeric', month: 'short', day: 'numeric' };
+        const dateString = date.toLocaleDateString('en-US', dateOptions);
+        return `${dateString}, ${timeString}`;
+    }
+}
+
+let searchTimeout;
+const SEARCH_DEBOUNCE_DELAY = 500; // milliseconds
+
+/**
+ * Fetches search results from the backend and renders them into the file list container.
+ * @param {string} query The search query string.
+ */
+function performSearch(query) {
+    console.log('Query being sent to API:', query); 
+    fetch(`/api/search?query=${encodeURIComponent(query)}`)
+        .then(response => response.json())
+        .then(data => {
+            const fileListContainer = document.getElementById('file-list-container');
+
+            if (!fileListContainer) {
+                console.error('Error: Element with ID "file-list-container" not found in web.html.');
+                return;
+            }
+
+            // Store latest search results globally for later use (e.g., selectFile)
+            window.latestSearchResults = data.files || [];
+
+            // Clear previous results
+            fileListContainer.innerHTML = '';
+
+            // Track added files to prevent duplicates
+            const addedFiles = new Set();
+
+            // Populate with new results
+            if (data.files && data.files.length > 0) {
+                data.files.forEach(file => {
+                    if (addedFiles.has(file.name)) return; // Skip if already added
+                    addedFiles.add(file.name);
+
+                    // Determine icon and color based on file type/extension
+                    let iconClass = 'fas fa-file';
+                    let iconColor = 'text-gray-500';
+                    const ext = file.name.split('.').pop().toLowerCase();
+                    if (ext === 'txt') {
+                        iconClass = 'fas fa-file-alt';
+                        iconColor = 'text-green-500';
+                    } else if (ext === 'blend') {
+                        iconClass = 'fas fa-cube';
+                        iconColor = 'text-orange-500';
+                    } else if (ext === 'md') {
+                        iconClass = 'fas fa-file-code';
+                        iconColor = 'text-indigo-500';
+                    }
+
+                    // Count versions (default to 1 if not provided)
+                    const versionCount = file.versions ? file.versions.length : (file.version_count || 1);
+
+                    // Mark active if needed (example: first file)
+                    const isActive = data.files[0] && file.name === data.files[0].name ? 'active' : '';
+
+                    const fileItemDiv = document.createElement('div');
+                    fileItemDiv.className = `file-item flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors border-l-4 border-transparent hover:border-indigo-500 ${isActive}`;
+                    fileItemDiv.setAttribute('data-file', file.name);
+                    fileItemDiv.setAttribute('data-filepath', file.path || file.name); // Store full path
+
+                    fileItemDiv.innerHTML = `
+                        <div class="flex items-center">
+                            <i class="${iconClass} ${iconColor} mr-3"></i>
+                            <span class="text-sm font-medium truncate">${file.name}</span>
+                        </div>
+                        <span class="text-xs text-gray-400">${versionCount} version${versionCount > 1 ? 's' : ''}</span>
+                    `;
+                    fileListContainer.appendChild(fileItemDiv);
+                });
+            } else {
+                fileListContainer.innerHTML = '<p class="text-gray-500 p-3">No files found for this query.</p>';
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching search results:', error);
+            const fileListContainer = document.getElementById('file-list-container');
+            if (fileListContainer) {
+                fileListContainer.innerHTML = '<p class="text-red-500 p-3">An error occurred while loading files.</p>';
+            }
+        });
+}
+
+function debounce(func, delay) {
+    let timeout;
+    return function(...args) {
+        const context = this;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(context, args), delay);
+    };
+}
+
+// Event listener for the search input
+// Elements.searchInput.addEventListener('input', (event) => {
+//     clearTimeout(searchTimeout); // Clear previous timeout
+//     const query = event.target.value;
+//     searchTimeout = setTimeout(() => {
+//         performSearch(query);
+//     }, SEARCH_DEBOUNCE_DELAY);
+// });
+
+/**
+ * Sends a request to the backend to open the specified file with the system's default application.
+ * @param {string} filePath The full path to the file to open.
+ */
+function openFileInDefaultApp(filePath) {
+    if (!filePath) {
+        console.warn("No file path provided to openFileInDefaultApp.");
+        return;
+    }
+
+    // You can add a confirmation dialog here if desired
+    // if (!confirm(`Are you sure you want to open this file?\n\n${filePath}`)) {
+    //     return;
+    // }
+
+    // Make an API call to a NEW backend endpoint for opening files
+    fetch('/api/open-file', { // Changed endpoint here
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ file_path: filePath }) // Changed key name for clarity
+    })
+    .then(Utils.handleResponse) // Re-use your existing response handler
+    .then(data => {
+        if (data && data.success) {
+            console.log(`Successfully requested to open file: ${filePath}`);
+            /*alert('File opened successfully!');*/ // Simple alert for demonstration
+        } else {
+            const errorMsg = data ? data.error : 'Unknown error';
+            console.error(`Failed to open file ${filePath}: ${errorMsg}`);
+            /*alert(`Failed to open file: ${errorMsg}`);*/
+        }
+    })
+    .catch(error => {
+        console.error('Network error or API error when trying to open file:', error);
+        alert(`Error connecting to server to open file: ${error.message}`);
+    });
+}
+
+/**
+ * Sends a request to the backend to open the specified path in the system's file explorer.
+ * @param {string} path The file or directory path to open.
+ */
+function openPathInExplorer(path, openFile) {
+    if (!path) {
+        console.warn("No path provided to openPathInExplorer.");
+        return;
+    }
+
+    // Make an API call to your backend
+    fetch('/api/open-location', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ file_path: path })
+    })
+    .then(Utils.handleResponse) // Re-use your existing response handler
+    .then(data => {
+        if (data && data.success) {
+            console.log(`Successfully requested to open path: ${path}`);
+            /*alert('Location opened successfully!');*/ // Simple alert for demonstration
+        } else {
+            const errorMsg = data ? data.error : 'Unknown error';
+            console.error(`Failed to open path ${path}: ${errorMsg}`);
+            /*alert(`Failed to open location: ${errorMsg}`);*/
+        }
+    })
+    .catch(error => {
+        console.error('Network error or API error when trying to open path:', error);
+        alert(`Error connecting to server to open location: ${error.message}`);
+    });
+}
+
+/**
+ * Sends a request to the backend to open the specified file with the system's default application.
+ * @param {string} filePath The full path to the file to open.
+ */
+function openFileWithDefaultApp(filePath) {
+    if (!filePath) {
+        console.warn("No file path provided to openFileWithDefaultApp.");
+        return;
+    }
+
+    fetch('/api/open-file', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ file_path: filePath })
+    })
+    .then(Utils.handleResponse)
+    .then(data => {
+        if (data && data.success) {
+            console.log(`Successfully requested to open file: ${filePath}`);
+        } else {
+            const errorMsg = data ? data.error : 'Unknown error';
+            console.error(`Failed to open file ${filePath}: ${errorMsg}`);
+        }
+    })
+    .catch(error => {
+        console.error('Network error or API error when trying to open file:', error);
+        alert(`Error connecting to server to open file: ${error.message}`);
+    });
+}
+
+/**
+ * Initiates the diff process for the specified file path.
+ * This function finds the corresponding file item element and passes it to DiffManager.showDiff.
+ * @param {string} filePath The path of the file to show the diff for.
+ */
+function showDiff(filePath) {
+    if (!filePath) {
+        console.warn("No file path provided to showDiff.");
+        return;
+    }
+
+    // Find the file-item element that corresponds to this filePath.
+    // This assumes your file-item elements have a data-filepath attribute.
+    const fileItemElement = document.querySelector(`.file-item[data-filepath="${filePath}"]`);
+
+    if (fileItemElement) {
+        if (typeof DiffManager !== 'undefined' && typeof DiffManager.showDiff === 'function') {
+            console.log(`Requesting diff for: ${filePath}`);
+            DiffManager.showDiff(fileItemElement); // Pass the found element
+        } else {
+            console.error("DiffManager.showDiff is not defined or not a function.");
+            alert("Diff functionality not available.");
+        }
+    } else {
+        console.error(`Could not find .file-item element for path: ${filePath}`);
+        alert("Cannot perform diff: File item not found on page.");
+    }
+}
+
+/**
+ * Sends a request to the backend to restore the specified path .
+ * @param {string} path The file or directory path to restore.
+ */
+function restoreFile(path, restoreFile) {
+    if (!path) {
+        console.warn("No path provided to openPathInExplorer.");
+        return;
+    }
+
+    // Make an API call to your backend
+    fetch('/api/restore-file', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ file_path: path })
+    })
+    .then(Utils.handleResponse) // Re-use your existing response handler
+    .then(data => {
+        if (data && data.success) {
+            console.log(`Successfully requested to open path: ${path}`);
+            /*alert('Location opened successfully!');*/ // Simple alert for demonstration
+        } else {
+            const errorMsg = data ? data.error : 'Unknown error';
+            console.error(`Failed to open path ${path}: ${errorMsg}`);
+            /*alert(`Failed to open location: ${errorMsg}`);*/
+        }
+    })
+    .catch(error => {
+        console.error('Network error or API error when trying to open path:', error);
+        alert(`Error connecting to server to open location: ${error.message}`);
+    });
+}
+
+// =============================================
 // INITIALIZATION
 // =============================================
 const App = {
@@ -1442,6 +2085,7 @@ const App = {
         Navigation.setup();
         UIControls.setup();
         LogManager.setup();
+        UIControls.setupToggles();
         DiffManager.setupModalControls();
         
         // Initial data loading
@@ -1488,6 +2132,24 @@ const App = {
 
 // Start the application when DOM is ready
 document.addEventListener('DOMContentLoaded', () => App.init());
+
+
+
+
+// Establish WebSocket connection
+const socket = new WebSocket('ws://localhost:5000/ws'); // Replace with your WebSocket URL
+
+socket.addEventListener('open', (event) => {
+    console.log('WebSocket connection established.');
+});
+
+socket.addEventListener('message', (event) => {
+    UIMessageHandler.handleMessage(event.data);
+});
+
+socket.addEventListener('close', (event) => {
+    console.log('WebSocket connection closed.');
+});
 
 
 // Clean up on page unload

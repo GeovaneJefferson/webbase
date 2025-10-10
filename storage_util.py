@@ -6,6 +6,8 @@ from pathlib import Path
 import configparser
 import logging
 import platform
+import psutil
+import json
 from typing import Optional, List, Dict, Union
 import stat
 from static.py.server import *
@@ -131,81 +133,73 @@ def get_drive_info(device_path):  # Need to make it dynamically settable
         return None
 
 def _get_linux_devices() -> List[Dict]:
-    """Linux-specific device detection for /media and /run/media mounts"""
+    """Linux-specific device detection using psutil and lsblk for robustness."""
     devices = []
-    
+    lsblk_info = {}
+
     try:
-        # Get mounted filesystems from /proc/mounts
-        with open('/proc/mounts', 'r') as f:
-            for line in f:
-                if line.startswith(('/dev/sd', '/dev/nvme', '/dev/mmcblk')):
-                    parts = line.split()
-                    mount_point = parts[1]
-                    
-                    # Only include devices mounted under /media or /run/media
-                    if mount_point.startswith(('/media/', '/run/media/')):
-                        device_info = {
-                            'device': parts[0],
-                            'mount_point': mount_point,
-                            'name': get_device_display_name({'mount_point': mount_point, 'label': None}), 
-                            'filesystem': parts[2],
-                            'device': get_drive_info(parts[0][:8]).get('device', 'N/A') if get_drive_info(parts[0][:8]) else 'N/A',
-                            'serial_number': get_drive_info(parts[0][:8]).get('serial', 'N/A') if get_drive_info(parts[0][:8]) else 'N/A',
-                            'model': get_drive_info(parts[0][:8]).get('model', 'N/A') if get_drive_info(parts[0][:8]) else 'N/A',
-                            'type': 'mounted'
-                        }
-                        # Add usage info if accessible
-                        try:
-                            usage = shutil.disk_usage(mount_point)
-                            device_info.update({
-                                'total': usage.total,
-                                'used': usage.used,
-                                'free': usage.free,
-                                'fraction': usage.used / usage.total if usage.total > 0 else 0,
-                                'human_total': bytes_to_human(usage.total),
-                                'human_used': bytes_to_human(usage.used),
-                                'human_free': bytes_to_human(usage.free)
-                            })
-                        except Exception as e:
-                            LOG.debug(f"Couldn't get usage for {mount_point}: {e}")
-                        
-                        devices.append(device_info)
-    
-    except Exception as e:
-        LOG.error(f"Error reading /proc/mounts: {e}")
-    
-    # Also check for unmounted devices in /media and /run/media
-    media_paths = ['/media', '/run/media']
-    for media_path in media_paths:
-        if os.path.exists(media_path):
+        # Use lsblk to get a comprehensive JSON output of block devices
+        # -b for bytes, -o for columns
+        result = subprocess.run(
+            ['lsblk', '-J', '-b', '-o', 'NAME,MOUNTPOINT,LABEL,SIZE,FSTYPE,TYPE,MODEL,SERIAL'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        lsblk_data = json.loads(result.stdout)
+
+        # Create a mapping from device name (e.g., "sda1") to its details
+        def process_blockdevices(devices_list):
+            for device in devices_list:
+                # lsblk reports device names without /dev/
+                dev_name = device.get('name')
+                if dev_name:
+                    lsblk_info[f"/dev/{dev_name}"] = device
+                if 'children' in device:
+                    process_blockdevices(device['children'])
+        
+        process_blockdevices(lsblk_data.get('blockdevices', []))
+
+    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError) as e:
+        LOG.warning(f"Could not execute or parse lsblk. Device model/serial will be unavailable. Error: {e}")
+
+    # Use psutil to get all mounted partitions, which is more reliable
+    for part in psutil.disk_partitions(all=False):
+        # We only care about physical devices with a real filesystem and mount point
+        # and that are mounted in user-accessible media locations.
+        if part.fstype and part.mountpoint and part.device.startswith('/dev/') and \
+           (part.mountpoint.startswith('/media/') or part.mountpoint.startswith('/run/media/')):
+
             try:
-                for entry in os.listdir(media_path):
-                    entry_path = os.path.join(media_path, entry)
-                    if os.path.ismount(entry_path):
-                        # Check if this device isn't already in our list
-                        if not any(d['mount_point'] == entry_path for d in devices):
-                            try:
-                                usage = shutil.disk_usage(entry_path)
-                                devices.append({
-                                    'device': f"Unknown (mounted at {entry_path})",
-                                    'mount_point': entry_path,
-                                    'filesystem': 'unknown',
-                                    'serial_number': 'N/A',
-                                    'model': 'N/A',
-                                    'type': 'mounted',
-                                    'total': usage.total,
-                                    'used': usage.used,
-                                    'free': usage.free,
-                                    'fraction': usage.used / usage.total if usage.total > 0 else 0,
-                                    'human_total': bytes_to_human(usage.total),
-                                    'human_used': bytes_to_human(usage.used),
-                                    'human_free': bytes_to_human(usage.free)
-                                })
-                            except Exception as e:
-                                LOG.debug(f"Couldn't get usage for {entry_path}: {e}")
+                usage = shutil.disk_usage(part.mountpoint)
+                
+                # Get extra info from our lsblk map
+                extra_info = lsblk_info.get(part.device, {})
+
+                device_info = {
+                    'device': part.device,
+                    'mount_point': part.mountpoint,
+                    'filesystem': part.fstype,
+                    'label': extra_info.get('label'),
+                    'name': get_device_display_name({
+                        'label': extra_info.get('label'),
+                        'mount_point': part.mountpoint,
+                        'device': part.device
+                    }),
+                    'serial_number': extra_info.get('serial', 'N/A'),
+                    'model': extra_info.get('model', 'N/A'),
+                    'type': extra_info.get('type', 'partition'),
+                    'total': usage.total,
+                    'used': usage.used,
+                    'free': usage.free,
+                    'human_total': bytes_to_human(usage.total),
+                    'human_used': bytes_to_human(usage.used),
+                    'human_free': bytes_to_human(usage.free)
+                }
+                devices.append(device_info)
             except Exception as e:
-                LOG.error(f"Error scanning {media_path}: {e}")
-    
+                LOG.warning(f"Could not get info for device {part.device} at {part.mountpoint}: {e}")
+
     return devices
 
 def _get_windows_devices() -> List[Dict]:
