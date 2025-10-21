@@ -1,6 +1,6 @@
-/* ======================
+/* =======================
    LAYOUT & STRUCTURE
-   ====================== */
+   ======================= */
 .sidebar-collapsed { 
     width: 60px; 
 }
@@ -11,19 +11,34 @@
     min-height: calc(100vh - 180px); 
 }
 .content-section { 
-    display: none; 
+    /* Hide inactive sections */
+    display: none !important;
 }
 .content-section.active { 
-    display: block; 
+    /* Use flex for the active section to allow Tailwind's flex/grid classes 
+       (like flex-col on #files-section) to work correctly. */
+    display: flex !important;
+    /* Ensure the content section takes up all available space */
+    flex-direction: column; 
+    flex-grow: 1;
+    overflow: hidden;
 }
 
-/* ======================
+.content-section#files-section.active {
+    /* Set flex direction to row for the files section */
+    flex-direction: row;
+}
+
+
+/* =======================
    TABLES
-   ====================== */
+   ======================= */
 .folder-table-container {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 200px);
+    /* Adjusted height calculation to ensure it fits within the main workspace */
+    height: calc(100vh - 13rem); 
+    min-height: 400px;
 }
 
 .folder-table-header {
@@ -99,9 +114,8 @@
    NAVIGATION
    ====================== */
 .nav-item.active {
-    background-color: #EEF2FF;
+    background-color: #4F46E5;
     color: #4F46E5;
-    border-left: 3px solid #4F46E5;
 }
 .tab-active {
     border-bottom: 2px solid #4F46E5;

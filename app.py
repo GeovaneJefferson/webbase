@@ -43,6 +43,7 @@ from datetime import datetime, timedelta
 from threading import Thread
 from static.py.server import *
 from static.py.search_handler import SeachHandler
+from static.py.has_driver_connection import has_driver_connection
 from storage_util import get_storage_info, get_all_storage_devices
 from flask_sock import Sock
 
@@ -777,7 +778,7 @@ def get_watched_folders():
             })
             
     except Exception as e:
-        app.logger.error(f"Error listing home directory: {str(e)}")
+        # app.logger.error(f"Error listing home directory: {str(e)}")
         return jsonify({
             'error': str(e),
             'path': home_path
@@ -1300,19 +1301,100 @@ def get_file_versions():
     return jsonify({'success': True, 'versions': versions}), 200
 
 
+##########################################################################
+# SUGGESTED FILES
+##########################################################################
+@app.route('/api/suggested-files', methods=['GET'])
+def populate_suggested_files():
+    # Clear previous suggestions from web ui
+
+    summary_file_path = server.get_summary_filename()
+    added_basenames = set()
+    suggested_items_to_display = [] # Store dicts: {"basename": str, "thumbnail_path": str, "original_path": str}
+    MAX_SUGGESTIONS_PER_SOURCE = 3
+
+    # 1. Populate from "most_frequent_backups" (if connection and summary exist)
+    # Order of preference for suggestions:
+    # a) Most frequent in last 5 days
+    # b) Overall most frequent
+    # c) System recent files
+
+    if has_driver_connection() and os.path.exists(summary_file_path):
+        try:
+            with open(summary_file_path, 'r') as f:
+                summary_data = json.load(f)
+
+            # a) Most frequent in last 5 days
+            most_frequent_recent = summary_data.get("most_frequent_recent_backups", [])
+            for item in most_frequent_recent[:MAX_SUGGESTIONS_PER_SOURCE]:
+                rel_path = item.get("path")
+                if not rel_path:
+                    continue
+                basename = os.path.basename(rel_path)
+                if basename not in added_basenames:
+                    thumbnail_path = os.path.join(server.main_backup_folder(), rel_path)
+                    original_path = os.path.join(server.USER_HOME, rel_path)
+                    suggested_items_to_display.append({
+                        "basename": basename, 
+                        "thumbnail_path": thumbnail_path, 
+                        "original_path": original_path, 
+                        "source": "freq_recent"
+                    })
+                    added_basenames.add(basename)
+                    
+            # b) Overall most frequent (if still need more suggestions)
+            most_frequent_overall = summary_data.get("most_frequent_backups", [])
+            overall_freq_added_count = 0
+            for item in most_frequent_overall:
+                if len(suggested_items_to_display) >= MAX_SUGGESTIONS_PER_SOURCE * 2: break # Overall limit
+                if overall_freq_added_count >= MAX_SUGGESTIONS_PER_SOURCE: break
+
+                rel_path = item.get("path")
+                if not rel_path:
+                    continue
+                basename = os.path.basename(rel_path)
+                if basename not in added_basenames:
+                    thumbnail_path = os.path.join(server.main_backup_folder(), rel_path)
+                    original_path = os.path.join(server.USER_HOME, rel_path) # Path in user's system
+                    suggested_items_to_display.append({
+                        "basename": basename,
+                        "thumbnail_path": thumbnail_path,
+                        "original_path": original_path,
+                        "source": "freq_overall"
+                    })
+                    added_basenames.add(basename)
+                    overall_freq_added_count += 1
+        except Exception as e:
+            print(f"Error loading or parsing summary file {summary_file_path}: {e}")
+
+    # 3. Populate FlowBox
+    if not suggested_items_to_display:
+        # Return an empty list of suggestions with success=True
+        return jsonify({'success': True, 'suggested_items_to_display': []})
+
+    for item_data in suggested_items_to_display:
+        basename = item_data["basename"]
+        source = item_data["source"]
+        thumbnail_path = item_data["thumbnail_path"]
+        original_path = item_data["original_path"]
+
+        # Return results to frontend
+        return jsonify({'success': True, 'suggested_items_to_display': suggested_items_to_display})
+
+
 if __name__ == '__main__':
     backup_service = BackupService()
 
     log_file_path = server.get_log_file_path()
     os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
     
-    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+    # formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+    # logger = logging.getLogger()
+    # logger.setLevel(logging.INFO)
     
-    file_handler = logging.FileHandler(log_file_path)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+    # file_handler = logging.FileHandler(log_file_path)
+    # file_handler.setFormatter(formatter)
+    # logger.addHandler(file_handler)
     
     app.run(debug=True)
 

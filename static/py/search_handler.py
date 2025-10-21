@@ -57,7 +57,7 @@ class SeachHandler:
 		# VARIABLES
 		##########################################################################
         self.selected_file_path: bool = None
-        self.MAIN_BACKUP_FOLDER: str = f"/media/{USERNAME}/{server.BACKUP_FOLDERS_NAME}/timemachine/backups/.main_backup"
+        self.MAIN_BACKUP_FOLDER: str = f"/media/{USERNAME}/{server.BACKUP_FOLDERS_NAME}/{server.APP_NAME_CLOSE_LOWER}/{server.BACKUPS_LOCATION_DIR_NAME}/{server.MAIN_BACKUP_LOCATION}"
         self.documents_path: str = os.path.expanduser(self.MAIN_BACKUP_FOLDER)
         self.location_buttons: list = []
         # For search

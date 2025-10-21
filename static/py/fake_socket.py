@@ -12,7 +12,7 @@ from datetime import datetime
 # This configuration must match the socket path defined in your `app.py`.
 APP_NAME_CLOSE_LOWER = "timemachine"
 SOCKET_PATH = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), f"{APP_NAME_CLOSE_LOWER}-ui.sock")
-
+        
 def send_message(sock, message_dict):
     """Encodes and sends a message dictionary to the UI socket."""
     try:

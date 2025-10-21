@@ -444,16 +444,17 @@ const BackupManager = {
             // homeUsage.className = 'h-2 rounded-full';
             // homeUsage.classList.add(Utils.getUsageColorClass(data.home_percent_used));
  
-            // Backup device info
+            // Backup device info "Right Side"
             deviceMountPoint.textContent = displayLocation;
-            elements.backupProgress.style.width = `${data.percent_used}%`;
-            elements.backupUsage.textContent = 
+            this.backupProgress.style.width = `${data.percent_used}%`;
+            this.backupUsage.textContent = 
                 `${data.human_used} used of ${data.human_total} (${data.percent_used}% used)`;
  
-            elements.deviceUsed.textContent = `${data.home_human_used}`;
-            elements.deviceFree.textContent = `${data.home_human_free}`;
-            elements.deviceTotal.textContent = `${data.home_human_total}`;
- 
+            // Source device info "Left Side" HOME
+            this.deviceUsed.textContent = `${data.human_used} `;
+            this.deviceFree.textContent = `${data.human_free}`;
+            this.deviceTotal.textContent = `${data.human_total}`;
+
             elements.backupProgress.className = 'h-2 rounded-full';
             elements.backupProgress.classList.add(Utils.getUsageColorClass(data.percent_used));
             
@@ -835,13 +836,15 @@ const Navigation = {
         // Update active nav item
         document.querySelectorAll('.nav-item').forEach(navItem => {
             const isActive = navItem.getAttribute('data-section') === section;
-            navItem.classList.toggle('active', isActive);
+            navItem.classList.toggle('active', isActive);            
+            navItem.classList.toggle('bg-indigo-600', isActive); // Background color when active
+            navItem.classList.toggle('text-white', isActive);  // Text color when active
             const icon = navItem.querySelector('i');
-            icon.classList.toggle('text-indigo-600', isActive);
-            icon.classList.toggle('text-gray-600', !isActive);
+            icon.classList.toggle('text-white', isActive);  // Icon color when active
+            icon.classList.toggle('text-gray-700', !isActive);    // Icon color when inactive
             const text = navItem.querySelector('span');
-            text.classList.toggle('text-indigo-600', isActive);
-            text.classList.toggle('text-gray-600', !isActive);
+            text.classList.toggle('text-white', isActive);  // Text color when active
+            text.classList.toggle('text-gray-700', !isActive);    // Text color when inactive
         });
         
         // Update active tab
@@ -861,8 +864,8 @@ const Navigation = {
         }
 
         // Show/hide right sidebar based on section
-        if (elements.rightSidebar) {
-            elements.rightSidebar.classList.toggle('hidden', section !== 'overview');
+        if (this.rightSidebar) {
+            this.rightSidebar.classList.toggle('hidden', section !== 'overview');
         }
     }
 };
@@ -1338,6 +1341,60 @@ const ActivityManager = {
 };
 
 // =============================================
+// PRO ACCESS
+// =============================================
+const ProAccessManager = {
+    showDialog: function() {
+    const proModal = document.getElementById('pro-modal');
+        const closeModalBtn = document.getElementById('close-modal-btn');
+        const modalContent = document.getElementById('modal-content-container');
+
+        const openModal = () => {
+            // Show modal overlay
+            proModal.classList.remove('opacity-0', 'pointer-events-none');
+            proModal.classList.add('opacity-100');
+            // Animate content in
+            modalContent.classList.remove('scale-95');
+            modalContent.classList.add('scale-100');
+        };
+
+        const closeModal = () => {
+            // Animate content out
+            modalContent.classList.remove('scale-100');
+            modalContent.classList.add('scale-95');
+            // Hide modal overlay after transition (300ms)
+            setTimeout(() => {
+                proModal.classList.remove('opacity-100');
+                proModal.classList.add('opacity-0', 'pointer-events-none');
+            }, 300);
+        };
+
+        // Event Listeners
+        if (ctaButton) {
+            ctaButton.addEventListener('click', openModal);
+        }
+        if (closeModalBtn) {
+            closeModalBtn.addEventListener('click', closeModal);
+        }
+        
+        // Close when clicking on the overlay background
+        if (proModal) {
+            proModal.addEventListener('click', (e) => {
+                if (e.target === proModal) {
+                    closeModal();
+                }
+            });
+        }
+
+        // Close when pressing the ESC key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && proModal.classList.contains('opacity-100')) {
+                closeModal();
+            }
+        });
+    }};
+
+// =============================================
 // FILE SECTION
 // =============================================
 // --- DOM Elements & State ---
@@ -1352,7 +1409,9 @@ const demoMessageBox = document.getElementById('demo-message');
 const backupVersionActionsContainer = document.getElementById('backupVersionActions');
 const openFile = document.getElementById('openFileBtn');
 const openLocation = document.getElementById('openLocationBtn');
+const ctaButton = document.getElementById('ctaButton');
 
+// --- Global State ---
 // Global state to track currently selected file and version
 let currentFileKey = '';
 let currentBackupVersionKey = null; // Will be set to the latest non-current version
@@ -1588,6 +1647,7 @@ document.addEventListener('DOMContentLoaded', () => {
         searchInput.addEventListener('input', (event) => {
             // Call the debounced function instead of the original directly
             debouncedPerformSearch(event.target.value);
+            Navigation.showSection('files');
         });
     }
 
@@ -1644,8 +1704,6 @@ document.addEventListener('DOMContentLoaded', () => {
         openFileWithDefaultApp(filePath);
     });
 
-
-
     // // 4. Navigation listener for sidebar links
     // navLinks.forEach(link => {
     //     link.addEventListener('click', (e) => {
@@ -1655,6 +1713,71 @@ document.addEventListener('DOMContentLoaded', () => {
     //     });
     // });
 });
+
+// =============================================
+// SUGGESTED FILES
+// =============================================
+const SuggestedFiles = {
+    load: () => {
+        fetch('/api/suggested-files')
+            .then(response => response.json())
+            .then(data => {
+                const suggestedFilesContainer = document.getElementById('suggested-files-container');
+
+                if (!suggestedFilesContainer) {
+                    console.error('Error: Element with ID "suggested-files-container" not found in web.html.');
+                    return;
+                }
+
+                // Clear previous results
+                suggestedFilesContainer.innerHTML = '';
+
+                if (data.success && data.suggested_items_to_display && data.suggested_items_to_display.length > 0) {
+                    data.suggested_items_to_display.forEach(item => {
+                        const fileItemDiv = document.createElement('div');
+                        fileItemDiv.className = 'flex items-center p-3 bg-gray-50 rounded-lg shadow-sm mb-4';
+
+                        fileItemDiv.innerHTML = `
+                            <i class="fas fa-file-code text-blue-500 text-lg mr-3"></i>
+                            <div class="flex-1">
+                                <div class="text-sm font-medium text-gray-800">${item.basename}</div>
+                                <div class="text-xs text-gray-500">${item.original_path}</div>
+                            </div>
+                            <button class="text-indigo-600 hover:text-indigo-800 text-sm font-medium" data-filepath="${item.original_path}">Search</button>
+                        `;
+
+                       // Attach click event to the "View" button to add file path to search bar and automatically search for it
+                        const viewButton = fileItemDiv.querySelector('button');
+                        viewButton.addEventListener('click', (event) => {
+                            const fileName = item.basename;
+                            // const filePath = event.target.getAttribute('data-filepath');
+                            const searchInput = document.getElementById('searchInput');
+                            if (searchInput) {
+                                searchInput.value = fileName;
+                                performSearch(fileName);  // Perform search
+                                Navigation.showSection('files');  // Switch to files section
+                            }
+                        });
+                        suggestedFilesContainer.appendChild(fileItemDiv);
+                    });
+                } else {
+                    suggestedFilesContainer.innerHTML = '<p class="text-gray-500 p-3">No Suggested files.</p>';
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching search results:', error);
+                const suggestedFilesContainer = document.getElementById('suggested-files-container');
+                if (suggestedFilesContainer) {
+                    suggestedFilesContainer.innerHTML = '<p class="text-red-500 p-3">An error occurred while loading files.</p>';
+                }
+            });
+    },
+
+    setup: () => {
+        SuggestedFiles.load();
+        setInterval(SuggestedFiles.load, 10000);
+    }
+};
 
 // =============================================
 // UI MESSAGE HANDLER (for WebSocket/SSE)
@@ -1849,14 +1972,27 @@ function performSearch(query) {
                     } else if (ext === 'blend') {
                         iconClass = 'fas fa-cube';
                         iconColor = 'text-orange-500';
-                    } else if (ext === 'md') {
+                    }
+                    else if (['md', 'txt', 'log', 'ini', 'config', 'cfg', 'conf', 'sh', 'py', 'js', 'html', 'css'].includes(ext)) {
                         iconClass = 'fas fa-file-code';
                         iconColor = 'text-indigo-500';
-                    }
+                    } else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp'].includes(ext)) {
+                        iconClass = 'fas fa-image';
+                        iconColor = 'text-purple-500';
+                    } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
+                        iconClass = 'fas fa-file-archive';
+                        iconColor = 'text-blue-500';
+                    } else if (['mp4', 'avi', 'mov', 'mkv'].includes(ext)) {
+                        iconClass = 'fas fa-file-video';
+                        iconColor = 'text-red-500';
+                    }  else if (['mp3', 'wav', 'flac', 'aac'].includes(ext)) {
+                        iconClass = 'fas fa-file-audio';
+                        iconColor = 'text-blue-500';
+                    } 
 
                     // Count versions (default to 1 if not provided)
                     const versionCount = file.versions ? file.versions.length : (file.version_count || 1);
-
+                    
                     // Mark active if needed (example: first file)
                     const isActive = data.files[0] && file.name === data.files[0].name ? 'active' : '';
 
@@ -2081,6 +2217,7 @@ function restoreFile(path, restoreFile) {
 // =============================================
 const App = {
     init: () => {
+        AppState.intervals = {};
         
         Navigation.setup();
         UIControls.setup();
@@ -2093,6 +2230,8 @@ const App = {
         DeviceManager.load();
         LogManager.load();
         FolderManager.loadWatchedFolders();  // Load folders immediately
+        ProAccessManager.showDialog(); // Show Pro access dialog if needed
+        SuggestedFiles.setup(); // Load sugested files
         
         // Set up intervals
         // AppState.intervals.backup = setInterval(BackupManager.updateStatus, 1000);  // TO REMOVE
@@ -2123,11 +2262,12 @@ const App = {
     },
 
     cleanup: () => {
-        Object.values(AppState.intervals).forEach(interval => {
-            if (interval) clearInterval(interval);
-        });
+        if (AppState && AppState.intervals) {
+            Object.values(AppState.intervals).forEach(interval => {
+                if (interval) clearInterval(interval);
+            });
+        }
     },
-
 };
 
 // Start the application when DOM is ready
@@ -2153,4 +2293,5 @@ socket.addEventListener('close', (event) => {
 
 
 // Clean up on page unload
+
 window.addEventListener('beforeunload', App.cleanup);
