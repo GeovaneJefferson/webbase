@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Time Machine - Activity Feed Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <style>
+        .activity-item {
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-6">
+    <div class="max-w-4xl mx-auto">
+        <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <!-- Header -->
+            <div class="bg-gradient-to-r from-blue-600 to-indigo-700 p-6 text-white">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 class="text-2xl font-bold">Time Machine</h1>
+                        <p class="text-blue-100">Real-time Backup Activity</p>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-sm text-blue-200">Connection Status</div>
+                        <div id="connectionStatus" class="flex items-center justify-end mt-1">
+                            <span class="text-green-300 mr-2">●</span>
+                            <span>Connected</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="flex">
+                <!-- Activity Feed -->
+                <div class="flex-1 overflow-y-auto p-6" style="max-height: 80vh;">
+                    <div class="font-semibold text-lg mb-4 text-gray-800">Recent Activity</div>
+                    
+                    <!-- Activity Feed Container -->
+                    <div class="space-y-4" id="activityFeed">
+                        <!-- Initial placeholder -->
+                        <div class="text-center text-gray-500 py-8">
+                            <i class="fas fa-inbox text-4xl mb-2"></i>
+                            <p>No activity yet</p>
+                            <p class="text-sm">Connect to see backup activity</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Controls Panel -->
+                <div class="w-80 bg-gray-50 border-l border-gray-200 p-6">
+                    <h3 class="font-semibold text-gray-800 mb-4">Test Controls</h3>
+                    
+                    <div class="space-y-4">
+                        <!-- Simulate Messages -->
+                        <div class="space-y-3">
+                            <button onclick="simulateAnalyzing()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors">
+                                Simulate Analyzing
+                            </button>
+                            
+                            <button onclick="simulateBackupProgress()" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors">
+                                Simulate Backup Progress
+                            </button>
+                            
+                            <button onclick="simulateBackupCompleted()" class="w-full bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors">
+                                Simulate Backup Completed
+                            </button>
+                            
+                            <button onclick="simulateWarning()" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors">
+                                Simulate Warning
+                            </button>
+                            
+                            <button onclick="simulateNewFolder()" class="w-full bg-purple-500 hover:bg-purple-600 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors">
+                                Simulate New Folder
+                            </button>
+                        </div>
+
+                        <!-- Connection Controls -->
+                        <div class="pt-4 border-t border-gray-200">
+                            <div class="flex space-x-2">
+                                <button onclick="connectWebSocket()" class="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors">
+                                    Connect
+                                </button>
+                                <button onclick="disconnectWebSocket()" class="flex-1 bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors">
+                                    Disconnect
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Auto Simulation -->
+                        <div class="pt-4 border-t border-gray-200">
+                            <button onclick="startAutoSimulation()" class="w-full bg-gray-700 hover:bg-gray-800 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors">
+                                Start Auto Simulation
+                            </button>
+                            <button onclick="stopAutoSimulation()" class="w-full bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors mt-2">
+                                Stop Auto Simulation
+                            </button>
+                        </div>
+
+                        <!-- Status -->
+                        <div class="pt-4 border-t border-gray-200">
+                            <div class="text-xs text-gray-600">
+                                <div>Messages Received: <span id="messageCount">0</span></div>
+                                <div>Last Update: <span id="lastUpdate">Never</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class ActivityFeed {
+            constructor() {
+                this.socket = null;
+                this.messageCount = 0;
+                this.autoSimulationInterval = null;
+                this.folders = ['Documents', 'Pictures', 'Music', 'Videos', 'Downloads', 'Projects', 'Desktop'];
+                this.files = [
+                    'budget.xlsx', 'report.pdf', 'vacation.jpg', 'song.mp3', 'movie.mp4',
+                    'presentation.pptx', 'code.py', 'notes.txt', 'design.psd', 'data.csv'
+                ];
+                this.init();
+            }
+
+            init() {
+                this.updateLastUpdate();
+                this.connectWebSocket();
+            }
+
+            connectWebSocket() {
+                try {
+                    this.socket = new WebSocket('ws://localhost:8765');
+                    
+                    this.socket.onopen = () => {
+                        this.updateConnectionStatus(true);
+                        console.log('✅ Connected to WebSocket server');
+                    };
+                    
+                    this.socket.onmessage = (event) => {
+                        this.handleMessage(JSON.parse(event.data));
+                    };
+                    
+                    this.socket.onclose = () => {
+                        this.updateConnectionStatus(false);
+                        console.log('❌ Disconnected from WebSocket server');
+                    };
+                    
+                    this.socket.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        this.updateConnectionStatus(false);
+                    };
+                    
+                } catch (error) {
+                    console.error('Failed to connect to WebSocket:', error);
+                    this.updateConnectionStatus(false);
+                }
+            }
+
+            disconnectWebSocket() {
+                if (this.socket) {
+                    this.socket.close();
+                    this.socket = null;
+                }
+            }
+
+            handleMessage(message) {
+                this.messageCount++;
+                this.updateLastUpdate();
+                document.getElementById('messageCount').textContent = this.messageCount;
+                
+                // Remove placeholder if it exists
+                const placeholder = document.querySelector('#activityFeed .text-center');
+                if (placeholder) {
+                    placeholder.remove();
+                }
+                
+                switch(message.type) {
+                    case 'analyzing':
+                        this.updateAnalyzingActivity(message);
+                        break;
+                    case 'progress':
+                        this.updateBackupProgress(message);
+                        break;
+                    case 'completed':
+                        this.addCompletedActivity(message);
+                        break;
+                    case 'warning':
+                        this.addWarningActivity(message);
+                        break;
+                    case 'info':
+                        this.addNewFolderActivity(message);
+                        break;
+                }
+            }
+
+            updateAnalyzingActivity(message) {
+                let analyzingItem = document.querySelector('.activity-item[data-type="analyzing"]');
+                
+                if (!analyzingItem) {
+                    analyzingItem = this.createElementFromHTML(this.createAnalyzingHTML(message));
+                    document.getElementById('activityFeed').prepend(analyzingItem);
+                } else {
+                    analyzingItem.querySelector('.analyzing-description').textContent = message.description;
+                    analyzingItem.querySelector('.analyzing-progress').style.width = message.progress + '%';
+                    analyzingItem.querySelector('.analyzing-count').textContent = message.processed + ' files processed';
+                }
+            }
+
+            updateBackupProgress(message) {
+                let progressItem = document.querySelector('.activity-item[data-type="progress"]');
+                
+                if (!progressItem) {
+                    progressItem = this.createElementFromHTML(this.createProgressHTML(message));
+                    document.getElementById('activityFeed').prepend(progressItem);
+                } else {
+                    progressItem.querySelector('.progress-description').textContent = message.description;
+                    progressItem.querySelector('.progress-bar').style.width = message.progress + '%';
+                    progressItem.querySelector('.progress-status').textContent = message.progress + '% completed';
+                    progressItem.querySelector('.progress-eta').textContent = message.eta;
+                }
+            }
+
+            addCompletedActivity(message) {
+                const item = this.createElementFromHTML(this.createCompletedHTML(message));
+                document.getElementById('activityFeed').prepend(item);
+            }
+
+            addWarningActivity(message) {
+                const item = this.createElementFromHTML(this.createWarningHTML(message));
+                document.getElementById('activityFeed').prepend(item);
+            }
+
+            addNewFolderActivity(message) {
+                const item = this.createElementFromHTML(this.createNewFolderHTML(message));
+                document.getElementById('activityFeed').prepend(item);
+            }
+
+            createElementFromHTML(htmlString) {
+                const div = document.createElement('div');
+                div.innerHTML = htmlString.trim();
+                return div.firstChild;
+            }
+
+            createAnalyzingHTML(message) {
+                const timeAgo = this.formatTimeAgo(message.timestamp);
+                return `
+                    <div class="flex items-start activity-item" data-type="analyzing">
+                        <div class="bg-blue-100 text-blue-600 p-2 rounded-full mr-3">
+                            <i class="fas fa-search text-sm"></i>
+                        </div>
+                        <div class="flex-1">
+                            <div class="text-sm font-medium">${message.title}</div>
+                            <div class="text-xs text-gray-500 mt-1 analyzing-description">${message.description}</div>
+                            <div class="w-full bg-gray-200 rounded-full h-1 mt-2">
+                                <div class="bg-blue-500 h-1 rounded-full analyzing-progress" style="width: ${message.progress}%"></div>
+                            </div>
+                            <div class="text-xs text-gray-400 mt-1 analyzing-count">${message.processed} files processed</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            createProgressHTML(message) {
+                const timeAgo = this.formatTimeAgo(message.timestamp);
+                return `
+                    <div class="flex items-start activity-item" data-type="progress">
+                        <div class="bg-indigo-100 text-indigo-600 p-2 rounded-full mr-3">
+                            <i class="fas fa-copy text-sm"></i>
+                        </div>
+                        <div class="flex-1">
+                            <div class="text-sm font-medium">${message.title}</div>
+                            <div class="text-xs text-gray-500 mt-1 truncate progress-description">${message.description}</div>
+                            <div class="w-full bg-gray-200 rounded-full h-1 mt-2">
+                                <div class="bg-indigo-500 h-1 rounded-full progress-bar" style="width: ${message.progress}%"></div>
+                            </div>
+                            <div class="flex justify-between text-xs text-gray-400 mt-1">
+                                <span class="progress-status">${message.progress}% completed</span>
+                                <span class="progress-eta">${message.eta}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            createCompletedHTML(message) {
+                const timeAgo = this.formatTimeAgo(message.timestamp);
+                return `
+                    <div class="flex items-start activity-item">
+                        <div class="bg-green-100 text-green-600 p-2 rounded-full mr-3">
+                            <i class="fas fa-check-circle text-sm"></i>
+                        </div>
+                        <div class="flex-1">
+                            <div class="text-sm font-medium">${message.title}</div>
+                            <div class="text-xs text-gray-500 mt-1">${message.description}</div>
+                            <div class="text-xs text-gray-400 mt-1">${timeAgo}</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            createWarningHTML(message) {
+                const timeAgo = this.formatTimeAgo(message.timestamp);
+                return `
+                    <div class="flex items-start activity-item">
+                        <div class="bg-yellow-100 text-yellow-600 p-2 rounded-full mr-3">
+                            <i class="fas fa-exclamation-triangle text-sm"></i>
+                        </div>
+                        <div class="flex-1">
+                            <div class="text-sm font-medium">${message.title}</div>
+                            <div class="text-xs text-gray-500 mt-1">${message.description}</div>
+                            <div class="text-xs text-gray-400 mt-1">${timeAgo}</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            createNewFolderHTML(message) {
+                const timeAgo = this.formatTimeAgo(message.timestamp);
+                return `
+                    <div class="flex items-start activity-item">
+                        <div class="bg-purple-100 text-purple-600 p-2 rounded-full mr-3">
+                            <i class="fas fa-folder-plus text-sm"></i>
+                        </div>
+                        <div class="flex-1">
+                            <div class="text-sm font-medium">${message.title}</div>
+                            <div class="text-xs text-gray-500 mt-1">${message.description}</div>
+                            <div class="text-xs text-gray-400 mt-1">${timeAgo}</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            formatTimeAgo(timestamp) {
+                const now = new Date();
+                const messageTime = new Date(timestamp);
+                const diffMs = now - messageTime;
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffHours = Math.floor(diffMs / 3600000);
+
+                if (diffMins < 1) return 'Just now';
+                if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+                if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+                return `${Math.floor(diffHours / 24)} day${Math.floor(diffHours / 24) > 1 ? 's' : ''} ago`;
+            }
+
+            updateConnectionStatus(connected) {
+                const statusElement = document.getElementById('connectionStatus');
+                if (connected) {
+                    statusElement.innerHTML = '<span class="text-green-300 mr-2">●</span><span>Connected</span>';
+                } else {
+                    statusElement.innerHTML = '<span class="text-red-300 mr-2">●</span><span>Disconnected</span>';
+                }
+            }
+
+            updateLastUpdate() {
+                document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+            }
+
+            // Simulation methods
+            simulateAnalyzing() {
+                const folders = this.folders.slice(0, 3);
+                folders.forEach((folder, index) => {
+                    setTimeout(() => {
+                        this.handleMessage({
+                            type: 'analyzing',
+                            title: 'Analyzing files',
+                            description: `Scanning ${folder} folder...`,
+                            progress: Math.min(100, (index + 1) * 25),
+                            processed: (index + 1) * 50,
+                            timestamp: new Date().toISOString()
+                        });
+                    }, index * 1000);
+                });
+            }
+
+            simulateBackupProgress() {
+                let progress = 0;
+                const interval = setInterval(() => {
+                    progress += 5;
+                    this.handleMessage({
+                        type: 'progress',
+                        title: 'Backup in progress',
+                        description: `${this.folders[Math.floor(Math.random() * this.folders.length)]}/${this.files[Math.floor(Math.random() * this.files.length)]}`,
+                        progress: progress,
+                        eta: `ETA: ${Math.max(0, 12 - Math.floor(progress / 8))} min`,
+                        timestamp: new Date().toISOString()
+                    });
+
+                    if (progress >= 100) {
+                        clearInterval(interval);
+                    }
+                }, 800);
+            }
+
+            simulateBackupCompleted() {
+                const folder = this.folders[Math.floor(Math.random() * this.folders.length)];
+                this.handleMessage({
+                    type: 'completed',
+                    title: 'Backup completed',
+                    description: `${folder} folder`,
+                    timestamp: new Date().toISOString()
+                });
+            }
+
+            simulateWarning() {
+                const sizes = ['2.4GB', '1.8GB', '3.2GB', '950MB'];
+                const file = this.files[Math.floor(Math.random() * this.files.length)];
+                this.handleMessage({
+                    type: 'warning',
+                    title: 'Warning',
+                    description: `Large file detected: ${file} (${sizes[Math.floor(Math.random() * sizes.length)]})`,
+                    timestamp: new Date().toISOString()
+                });
+            }
+
+            simulateNewFolder() {
+                const folder = this.folders[Math.floor(Math.random() * this.folders.length)];
+                this.handleMessage({
+                    type: 'info',
+                    title: 'New folder added',
+                    description: folder,
+                    timestamp: new Date().toISOString()
+                });
+            }
+
+            startAutoSimulation() {
+                this.stopAutoSimulation();
+                let counter = 0;
+                
+                this.autoSimulationInterval = setInterval(() => {
+                    const actions = [
+                        () => this.simulateAnalyzing(),
+                        () => this.simulateBackupProgress(),
+                        () => this.simulateBackupCompleted(),
+                        () => this.simulateWarning(),
+                        () => this.simulateNewFolder()
+                    ];
+                    
+                    actions[counter % actions.length]();
+                    counter++;
+                    
+                    if (counter >= 15) {
+                        this.stopAutoSimulation();
+                    }
+                }, 3000);
+            }
+
+            stopAutoSimulation() {
+                if (this.autoSimulationInterval) {
+                    clearInterval(this.autoSimulationInterval);
+                    this.autoSimulationInterval = null;
+                }
+            }
+        }
+
+        // Initialize the activity feed
+        const activityFeed = new ActivityFeed();
+
+        // Global functions for buttons
+        function simulateAnalyzing() { activityFeed.simulateAnalyzing(); }
+        function simulateBackupProgress() { activityFeed.simulateBackupProgress(); }
+        function simulateBackupCompleted() { activityFeed.simulateBackupCompleted(); }
+        function simulateWarning() { activityFeed.simulateWarning(); }
+        function simulateNewFolder() { activityFeed.simulateNewFolder(); }
+        function connectWebSocket() { activityFeed.connectWebSocket(); }
+        function disconnectWebSocket() { activityFeed.disconnectWebSocket(); }
+        function startAutoSimulation() { activityFeed.startAutoSimulation(); }
+        function stopAutoSimulation() { activityFeed.stopAutoSimulation(); }
+    </script>
+</body>
+</html>

@@ -1,20 +1,22 @@
-import getpass
 import os
-import pathlib
-import itertools
-import subprocess as sub
-import configparser
+import json
+import tempfile
 import shutil
 import time
+import logging
+import configparser
+import subprocess as sub
+import math
+import datetime
+import getpass
+import pathlib
+import itertools
 import sys
 import signal
 import asyncio
 import threading
-from threading import Timer
 import multiprocessing
 import locale
-import sqlite3
-import logging
 import traceback
 import socket
 import errno
@@ -24,7 +26,6 @@ import random
 import platform
 import inspect
 import gi
-import json
 import fnmatch
 import hashlib
 import stat
@@ -32,878 +33,329 @@ import psutil
 import fcntl
 import mimetypes
 import cairo
-import tempfile
-import math
 import difflib 
+import os
+import shutil
+import subprocess
+import re
+
+from concurrent.futures import ProcessPoolExecutor
+from threading import Timer
+from queue import Queue, Empty
+from typing import Optional, List, Dict, Union
 from datetime import datetime, timedelta
-
-gi.require_version('Gtk', '4.0')
-gi.require_version('Adw', '1')
-gi.require_version('Gio', '2.0')
-from gi.repository import Gtk, Adw, Gio, GLib, Gdk, GdkPixbuf, Pango, GObject
-
-# Ignore SIGPIPE signal, so that the app doesn't crash
-signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+from pathlib import Path
 
 
 class SERVER:
-	def __init__(self):
-		self.backup_status = "Idle"  # In-memory shared state for backup status
-		self.backup_in_progress = False
-		self.suspend_flag = False
+    def __init__(self):
+        """Docstring for __init__ :param self: Description"""
+        self.DEV_NAME: str = "Geovane J."
+        self.GITHUB_PAGE: str = "https://github.com/GeovaneJefferson/timemachine"
+        self.GITHUB__ISSUES: str = "https://github.com/GeovaneJefferson/timemachine/issues"
+        self.COPYRIGHT: str = "Copyright © 2025 Geovane J.\n\n This application comes with absolutely no warranty. See the GNU General Public License, version 3 or later for details."
+        self.ID: str = "io.github.geovanejefferson.timemachine"
+        self.APP_NAME: str = "Timemachine"
+        self.APP_NAME_CLOSE_LOWER: str = self.APP_NAME.lower().replace(" ", "")
+        self.APP_VERSION: str = "v0.1 dev"
+        self.SUMMARY_FILENAME: str = ".backup_summary.json"  # 
+        self.BACKUPS_LOCATION_DIR_NAME: str = "backups"  # Where backups will be saved
+        self.APPLICATIONS_LOCATION_DIR_NAME: str = "applications"
+        self.APP_RELEASE_NOTES: str = ""
 
-		self.failed_backup: list = []
-		# Format the current date and time to get the day name
-		self.DAY_NAME: str = datetime.now().strftime("%A").upper().strip()  # SUNDAY, MONDAY...
-
-		# List of file extensions that can be used for generating thumbnails or previews
-		self.thumbnails_extensions_list = [
-			".png",  # PNG image files
-			".jpg",  # JPEG image files
-			".jpeg", # JPEG image files
-			".gif",  # GIF image files
-			".bmp",  # Bitmap image files
-			".webp", # WebP image files
-			".tiff", # TIFF image files
-			".svg",  # SVG image files (note: may require additional handling)
-			".ico",  # Icon files
-			".mp4",  # Video files (previews)
-			".avi",  # AVI video files
-			".mov",  # MOV video files
-			".pdf",  # PDF documents (may require special handling like Poppler to render)
-			".docx", # Word documents (requires a library to render previews)
-			".txt",  # Text files
-			".xlsx", # Excel files (requires libraries like OpenPyXL to render)
-			".pptx", # PowerPoint files (requires libraries like python-pptx to render)
-		]
-		self.IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg"}
-		self.TEXT_EXTENSIONS = {
-			".txt", ".py", ".md", ".csv", ".json", ".xml", ".ini", ".log",
-			  ".gd", ".js", ".html", ".css", ".sh", ".c", ".cpp", ".h", ".hpp",
-			    ".java", ".rs", ".go", ".toml", ".yml", ".yaml"}
-		################################################################################
-		# APP SETTINGS
-		################################################################################
-		self.DEV_NAME: str = "Geovane J."
-		self.GITHUB_PAGE: str = "https://github.com/GeovaneJefferson/timemachine"
-		self.GITHUB__ISSUES: str = "https://github.com/GeovaneJefferson/timemachine/issues"
-		self.COPYRIGHT: str = "Copyright © 2025 Geovane J.\n\n This application comes with absolutely no warranty. See the GNU General Public License, version 3 or later for details."
-		self.ID: str = "io.github.geovanejefferson.timemachine"
-		self.APP_NAME: str = "Time Machine"
-		self.BACKUP_FOLDERS_NAME: str = "BACKUP"  # Temporary name for backup folder, needs to be dynamically
-		# self.APP_NAME_CLOSE_LOWER: str = "timemachine"
-		self.APP_NAME_CLOSE_LOWER: str = self.APP_NAME.lower().replace(" ", "")
-		self.APP_VERSION: str = "v0.1 dev"
-		self.SUMMARY_FILENAME: str = ".backup_summary.json"
-		self.BACKUPS_LOCATION_DIR_NAME: str = "backups"  # Where backups will be saved
-		self.APPLICATIONS_LOCATION_DIR_NAME: str = "applications"
-		self.APP_RELEASE_NOTES: str = ""
-		
-		################################################################################
-		# DRIVER LOCATION
-		################################################################################
-		self.MEDIA: str = "/media"
-		self.RUN: str = "/run/media"	
-		self.MAIN_BACKUP_LOCATION: str = '.main_backup'
-
-		################################################################################
-		# SYSTEM
-		################################################################################
-		self.GET_USERS_DE: str = "XDG_CURRENT_DESKTOP"
-		self.GET_USERS_PACKAGE_MANAGER: str = "cat /etc/os-release"
-		self.USER_HOME: str = os.path.expanduser("~")  # Get user's home directory
-		self.LOG_FILE_PATH = os.path.expanduser(f"~/.{self.APP_NAME_CLOSE_LOWER}.log")
-		
-		self.SOCKET_PATH = "/tmp/guardian-ui.sock"  # Non flatpak
-		# self.SOCKET_PATH: str = f"~/.var/app/{self.ID}/cache/tmp/guardian-ui.sock"
-		# self.SOCKET_PATH = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "guardian-ui.sock")
-		# Concurrency settings for copying files
-		# Default, can be adjusted based on system resources and current load
-		self.DEFAULT_COPY_CONCURRENCY = 2
-
-		################################################################################
-		# HOME SYSTEM LOCATIONS
-		################################################################################
-		self.HOME_USER: str = os.path.expanduser("~") # Path.home() is equivalent to os.path.expanduser("~")
-		self.USERNAME = getpass.getuser()
-		self.GET_HOME_FOLDERS: str = os.listdir(self.HOME_USER)
-		self.GET_CURRENT_LOCATION = pathlib.Path().resolve()
-
-		################################################################################
-		# FLATPAK
-		################################################################################
-		# self.GET_FLATPAKS_APPLICATIONS_NAME: str = 'flatpak list --app --columns=application'
-		self.GET_FLATPAKS_APPLICATIONS_NAME = 'flatpak-spawn --host flatpak list --app --columns=application'
-		self.FLATPAK_SH_DST: str = f'~/.var/app/{self.ID}/config/list_flatpaks.sh'
-
-		################################################################################
-		# LOCATIONS
-		################################################################################
-		self.CONF = configparser.ConfigParser()
-		# FLATPAK
-		# self.CONF_LOCATION: str = os.path.join(os.path.expanduser("~"), '.var', 'app', self.ID, 'config', 'config.conf')
-		self.CONF_LOCATION: str = "config/config.conf"
-		self.autostart_file: str = os.path.expanduser(f"~/.config/autostart/{self.APP_NAME.lower()}_autostart.desktop")
-
-		if not os.path.exists(self.CONF_LOCATION):
-			self.create_and_move_files_to_users_home()
-
-		if os.path.exists(self.CONF_LOCATION):
-			self.CONF.read(self.CONF_LOCATION)
-		else:
-			print(f"Config file {self.CONF_LOCATION} not found!")
-
-		# DRIVER Section
-		self.DRIVER_NAME = self.get_database_value(
-			section='DEVICE_INFO',
-			option='name')
-
-		self.DRIVER_LOCATION = self.get_database_value(
-			section='DEVICE_INFO',
-			option='path')
-
-		self.AUTOMATICALLY_BACKUP = self.get_database_value(
-			section='BACKUP',
-			option='automatically_backup')
-
-		self.BACKING_UP = self.get_database_value(
-			section='BACKUP',
-			option='backing_up')
-
-		# DAEMON PID
-		# self.DAEMON_PY_LOCATION: str = 'src/daemon.py'
-		# self.DAEMON_PID_LOCATION: str = os.path.join(self.create_base_folder(), 'daemon.pid')
-		
-		# Flatpak
-		self.DAEMON_PY_LOCATION: str = os.path.join('/app/share/timemachine/src', 'daemon.py')
-		self.DAEMON_PID_LOCATION: str = os.path.join(os.path.expanduser("~"), '.var', 'app', self.ID, 'config', 'daemon.pid')
+        # User's home
+        self.USERS_HOME = os.path.expanduser('~')
         
-		self.CACHE = {}
-		self.cache_file = os.path.join(self.backup_folder_name(), ".cache.json")
-	
-	##############################################################################
-	# Signal, Loading and Saving Handling
-	##############################################################################
-	def create_and_move_files_to_users_home(self):
-		# Create the directory if it doesn't exist
-		config_dir = os.path.dirname(self.CONF_LOCATION)
-		os.makedirs(config_dir, exist_ok=True)
-
-		# Write default config values
-		self.CONF['BACKUP'] = {
-			'automatically_backup': 'false',
-			'backing_up': 'false',
-			'status': ''
-		}
-
-		self.CONF['DRIVER'] = {
-			'driver_location': '',
-			'driver_name': ''
-		}
-
-		self.CONF['EXCLUDE'] = {
-			'exclude_hidden_itens': 'true',
-		}
-
-		self.CONF['EXCLUDE_FOLDER'] = {
-			'folders': '',
-		}
-
-		self.CONF['RECENT'] = {
-			'recent_backup_file_path': '',
-			'recent_backup_timeframe': '',
-		}
-
-		# Save the config to the file
-		with open(self.CONF_LOCATION, 'w') as config_file:
-			self.CONF.write(config_file)
-
-		# ######################################################################
-		# # Create the directory if it doesn't exist
-		# flatpak_list_dir = os.path.dirname(self.FLATPAK_SH_DST)
-		# os.makedirs(flatpak_list_dir, exist_ok=True)
-
-		# # Create the shell script content
-		# script_content = """#!/bin/bash\nflatpak list --app --columns=application
-		# """
-
-		# # Write the content to the file
-		# with open(os.path.expanduser(self.FLATPAK_SH_DST), 'w') as script_file:
-		# 	script_file.write(script_content)
-
-		# # Make the script executable
-		# try:
-		# 	os.chmod(self.FLATPAK_SH_DST, stat.S_IREAD)
-		# 	os.chmod(self.FLATPAK_SH_DST, stat.S_IROTH)
-		# 	os.chmod(self.FLATPAK_SH_DST, stat.S_IWRITE)
-
-		# 	print(f"Script created and made executable at: {self.FLATPAK_SH_DST}")
-		# except PermissionError as e:
-		# 	print(f"Permission error while changing file permissions: {e}")
-
-		# print(f"Script created at: {os.path.expanduser(self.FLATPAK_SH_DST)}")
-
-	def is_daemon_running(self):
-		"""Check if the daemon is already running by checking the PID in the Flatpak sandbox."""
-		if not os.path.exists(self.DAEMON_PID_LOCATION):
-			logging.info(f"PID file {self.DAEMON_PID_LOCATION} does not exist. Daemon not running or PID file cleaned up.")
-			return False
-
-		try:
-			with open(self.DAEMON_PID_LOCATION, 'r') as f:
-				pid_str = f.read().strip()
-				if not pid_str:
-					logging.warning(f"PID file {self.DAEMON_PID_LOCATION} is empty. Assuming daemon not running.")
-					return False
-				pid = int(pid_str)
-		except (ValueError, FileNotFoundError) as e:
-			logging.error(f"Error reading PID from {self.DAEMON_PID_LOCATION}: {e}. Assuming daemon not running.")
-			return False
-		except Exception as e: # Catch any other unexpected error during file read
-			logging.error(f"Unexpected error reading PID file {self.DAEMON_PID_LOCATION}: {e}. Assuming daemon not running.")
-			return False
-
-		try:
-			# Attempt to create a Process object. This will raise NoSuchProcess if the PID is invalid.
-			p = psutil.Process(pid) # Raises NoSuchProcess, ZombieProcess, AccessDenied
-
-			# If we reach here, the process exists. Now verify it's our daemon.
-			cmdline = p.cmdline()
-			if not cmdline:
-				# This case is unlikely if psutil.Process(pid) succeeded without ZombieProcess
-				logging.info(f"Could not retrieve command line for PID {pid}. Cannot definitively verify daemon identity. Assuming running based on PID existence and Process() success.")
-				return True
-
-			daemon_script_name = os.path.basename(self.DAEMON_PY_LOCATION)
-			is_our_daemon = False
-			for arg in cmdline:
-				# Check if the daemon script path or just the script name is in the command line arguments
-				if self.DAEMON_PY_LOCATION in arg or daemon_script_name in arg:
-					is_our_daemon = True
-					break
-			
-			if is_our_daemon:
-				logging.info(f"Daemon is running with PID: {pid} and verified command line.")
-				return True
-			else:
-				logging.warning(f"Process with PID {pid} exists, but its command line {cmdline} does not match expected daemon script '{daemon_script_name}'. PID file may be stale or belong to another process.")
-				# Consider if the PID file should be cleaned up by the daemon's startup logic if this state persists.
-				return False
-
-		except psutil.NoSuchProcess:
-			logging.warning(f"Process with PID {pid} from {self.DAEMON_PID_LOCATION} does not exist (psutil.NoSuchProcess). PID file may be stale.")
-			return False
-		except psutil.ZombieProcess:
-			logging.warning(f"Process with PID {pid} from {self.DAEMON_PID_LOCATION} is a zombie process. PID file is stale.")
-			# The daemon's startup logic should ideally clean up stale PID files.
-			return False
-		except psutil.AccessDenied:
-			logging.error(f"Access denied when trying to inspect process with PID {pid}. Cannot verify daemon identity. Assuming not running for safety.")
-			# Returning False is safer as it might allow a new daemon to start and correct the PID file.
-			return False
-		except Exception as e:
-			logging.error(f"Unexpected error checking process PID {pid} with psutil: {e}. Assuming not running.")
-			return False
-	
-	def is_first_backup(self) -> bool:
-		try:
-			if not os.path.exists(self.main_backup_folder()):
-				return True
-			return False
-			# else:
-			# 	# Make sure that backup to main was not interrupted
-			# 	if os.path.exists(self.INTERRUPTED_MAIN):
-			# 		return True
-			# 	return False
-		except FileNotFoundError:
-			return True
-		except Exception as e:
-			logging.error('Error while trying to find if is the first backup.')
-
-
-	# Get users device mount point
-	def get_device_for_mountpoint(self, mount_point):
-		try:
-			output = sub.check_output(["findmnt", "-n", "-o", "SOURCE", mount_point])
-			return output.decode("utf-8").strip()  # e.g., "/dev/sdb1"
-		except Exception as e:
-			#print("Failed to find device for mount point:", e)
-			return None
-		
-	# Get the filesystem type of a given path
-	def get_filesystem_type(self, path):
-		try:
-			output = sub.check_output(['lsblk', '-no', 'FSTYPE', path])
-			fs_type = output.decode('utf-8').strip()
-			return fs_type or "Unknown"
-		except Exception as e:
-			#print("Failed to detect filesystem type:", e)
-			return "Unknown"
-	
-	# Starred files location
-	def get_starred_files_location(self) -> str: 
-		return f"{self.create_base_folder()}/.starred_files.json"
-
-	# Hidden files location
-	def get_summary_filename(self) -> str:
-		return f"{self.create_base_folder()}/{self.SUMMARY_FILENAME}"
-
-	def get_log_file_path(self) -> str:
-		"""Get the path to the log file."""
-		return self.LOG_FILE_PATH
-	
-	def get_interrupted_main_file(self) -> str:
-		"""Get the path to the interrupted main file."""
-		return f"{self.create_base_folder()}/.interrupted_main"
-
-	# EXCLUDE FOLDERS
-	def load_ignored_folders_from_config(self):
-		"""
-		Load ignored folders from the configuration file.
-		"""
-		try:
-			# Get the folder string from the config
-			folder_string = self.get_database_value(
-				section='EXCLUDE_FOLDER', 
-				option='folders')
-			
-			# Split the folder string into a list
-			return [folder.strip() for folder in folder_string.split(',')] if folder_string else []
-		except ValueError as e:
-			#print(f"Configuration error: {e}")
-			return []
-		except Exception as e:
-			#print(f"Error while loading ignored folders: {e}")
-			return []
-		
-	# async def get_filtered_home_files(self) -> tuple:
-	# 	"""
-	# 	Asynchronously retrieves all files from the user's home directory while excluding:
-	# 	- Hidden files (if enabled via configuration)
-	# 	- Unfinished downloads (e.g., files ending with .crdownload, .part, or .tmp)
-	# 	- Directories specified in the EXCLUDE_FOLDER config
-
-	# 	Returns:
-	# 		A tuple (files, total_count) where:
-	# 		- files: List of tuples (src_path, rel_path, size)
-	# 		- total_count: Total number of files found
-	# 	"""
-	# 	home_files = []
-	# 	excluded_dirs = {'__pycache__'}
-	# 	excluded_extensions = {'.crdownload', '.part', '.tmp'}
-
-	# 	ignored_folders = self.load_ignored_folders_from_config() or []
-		
-	# 	try:
-	# 		exclude_hidden_items = bool(self.get_database_value(
-	# 			section='EXCLUDE', 
-	# 			option='exclude_hidden_itens'
-	# 		))
-	# 	except Exception as e:
-	# 		logging.error(f"Error retrieving 'exclude_hidden_itens' config: {e}")
-	# 		exclude_hidden_items = False
-
-	# 	def scan_files():
-	# 		"""Perform file scanning in a separate thread (non-blocking for async)."""
-	# 		for root, _, files in os.walk(self.USER_HOME):
-	# 			if getattr(self, 'suspend_flag', False):
-	# 				self.signal_handler(signal.SIGTERM, None)
-	# 				break
-
-	# 			if any(os.path.commonpath([root, ignored]) == ignored for ignored in ignored_folders):
-	# 				continue
-
-	# 			for file in files:
-	# 				try:
-	# 					src_path = os.path.join(root, file)
-	# 					rel_path = os.path.relpath(src_path, self.USER_HOME)
-
-	# 					# Check if file still exists before getting its size
-	# 					if not os.path.exists(src_path):
-	# 						continue
-
-	# 					size = os.path.getsize(src_path)
-
-	# 					is_hidden_file = (
-	# 						exclude_hidden_items and (
-	# 							file.startswith('.') or 
-	# 							any(part.startswith('.') for part in rel_path.split(os.sep))
-	# 						)
-	# 					)
-	# 					is_unfinished_file = any(file.endswith(ext) for ext in excluded_extensions)
-
-	# 					if not (is_hidden_file or is_unfinished_file):
-	# 						home_files.append((src_path, rel_path, size))
-
-	# 				except FileNotFoundError:
-	# 					logging.warning(f"File not found (skipped): {src_path}")
-	# 					continue
-	# 				except Exception as e:
-	# 					logging.exception(f"Error processing file '{file}' in '{root}': {e}")
-	# 					continue
-
-	# 	# Offload the scanning to a separate thread to keep async performance
-	# 	await asyncio.to_thread(scan_files)
-
-	# 	return home_files, len(home_files)
-	
-	def free_space_by_deleting_oldest_backups(self, required_space):
-		"""
-		Delete oldest backup folders until required_space is available.
-		Returns True if enough space is freed, False otherwise.
-		"""
-		backup_root = self.backup_folder_name()
-		while True:
-			statvfs = os.statvfs(backup_root)
-			available_space = statvfs.f_frsize * statvfs.f_bavail
-			if available_space >= required_space:
-				return True  # Enough space now
-
-			# Find all date folders
-			date_folders = [
-				os.path.join(backup_root, d)
-				for d in os.listdir(backup_root)
-				if os.path.isdir(os.path.join(backup_root, d))
-			]
-			if not date_folders:
-				#print("No backup folders found to delete.")
-				logging.error("No more backup folders to delete, but still not enough space.")
-				return False
-
-			# Sort by creation time (oldest first)
-			date_folders.sort(key=lambda x: os.path.getctime(x))
-			oldest = date_folders[0]
-			try:
-				shutil.rmtree(oldest)
-				#print(f"Deleting old backup folder: {oldest}")
-				logging.warning(f"Deleted old backup folder to free space: {oldest}")
-			except Exception as e:
-				logging.error(f"Failed to delete {oldest}: {e}")
-				return False
+        # Paths
+        self.LOG_FILE_PATH = os.path.expanduser(f"~/.{self.APP_NAME_CLOSE_LOWER}.log")
+        self.SOCKET_PATH = f"/tmp/{self.APP_NAME_CLOSE_LOWER}_socket.sock"
         
-	# BACKUP DESTINATION
-	def backup_to_dst(self, src_path: str, dst_path: str) -> None:
-		try:
-			dst_path_dir: str = os.path.dirname(dst_path)
-			os.makedirs(dst_path_dir, exist_ok=True)
-
-			# Copies files
-			shutil.copy2(src_path, dst_path)
-		except Exception as e:
-			logging.error(f"Backing up from {src_path} to {dst_path}.")
-
-	def convert_result_to_python_type(self, value):
-		try:
-			if value == 'True' or value == 'true' or value == 'Yes':
-				return True
-			elif value == 'False' or value == 'false' or value == 'No':
-				return False
-			elif value == 'None' or value == ' ' or value is None:
-				return None
-			else:
-				return value
-		except TypeError:
-			return None
-
-	# def save_timeframe_to_db(self, timeframe: list, where: str, current_day:bool):
-	# 	if current_day:
-	# 		day = self.DAY_NAME
-	# 	else:
-	# 		day = self.get_next_day_name()
-
-	# 	print(f'Generating {day} timeframe...')
-
-	# 	# Convert list to string
-	# 	timeframe_str = ','.join(map(str, timeframe))
-
-	# 	# Assuming day_name is defined somewhere
-	# 	self.set_database_value(
-	# 		section=day,  # Current day name in upper case
-	# 		option=where,
-	# 		value=timeframe_str,
-	# 		func=self.save_timeframe_to_db)
-
-	def get_user_device_size(self, path: str, get_total: bool) -> str:
-		total, used, device_free_size = shutil.disk_usage(path)
-
-		# Convert to human-readable format (KB, MB, GB, TB)
-		suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
-		index = 0
-		size = total if get_total else used
-		while size >= 1024 and index < len(suffixes) - 1:
-			size /= 1024.0
-			index += 1
-		return f"{size:.2f} {suffixes[index]}"
-
-	def get_item_size(self, item_path: str, human_readable: bool = False) -> str:
-		if not os.path.exists(item_path):
-			return "None"
-		
-		try:
-			size_bytes = os.path.getsize(item_path)
-		except Exception as e:
-			return str(e)
-
-		if human_readable:
-			# Convert to human-readable format (KB, MB, GB, TB)
-			suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
-			index = 0
-			size = size_bytes
-			while size >= 1024 and index < len(suffixes) - 1:
-				size /= 1024.0
-				index += 1
-			return f"{size:.2f} {suffixes[index]}"
-		else:
-			return size_bytes
-
-	def count_total_files(self, path: str) -> int:
-		total_files: int = 0
-		# Load ignored folders from config
-		ignored_folders = self.load_ignored_folders_from_config()
-
-		for root, dirs, files in os.walk(path):
-			for file in files:
-				src_path: str = os.path.join(root, file)
-				only_dirname: str =  src_path.split('/')[3]
-
-				# Exclude directories that match the ignored folders
-				if any(os.path.commonpath([root, ignored_folder]) == ignored_folder for ignored_folder in ignored_folders):
-					continue
-
-				total_files += 1
-		return total_files
-	
-	def has_backup_device_enough_space(
-			self, 
-			file_path: str=None, 
-			backup_list: list=None) -> bool:
-		threshold_bytes = 2 * 1024 * 1024 * 1024  # 2 GB
-		total, used, device_free_size = shutil.disk_usage(self.DRIVER_LOCATION)
-
-		if backup_list:
-			try:
-				# Cast sizes to int just in case
-				file_size = sum(int(size) for _, _, size in backup_list)
-			except Exception as e:
-				return False
-		else:
-			file_size = self.get_item_size(file_path)
-			if not isinstance(file_size, int):
-				try:
-					file_size = int(file_size)
-				except Exception as e:
-					return False
-		# logging.debug(f"Checking space: device_free_size={device_free_size}, file_size={file_size}, threshold_bytes={threshold_bytes}")
-		return device_free_size > (file_size + threshold_bytes)
-
-	####################################################################
-	# Packages managers
-	####################################################################
-	def rpm_main_folder(self):
-		return f"{self.DRIVER_LOCATION}/{self.APP_NAME_CLOSE_LOWER}/packages/rpm"
-
-	def deb_main_folder(self):
-		return f"{self.DRIVER_LOCATION}/{self.APP_NAME_CLOSE_LOWER}/packages/deb"
-
-	################################################################################
-	# LOCATION
-	# Base backup folder location
-	def main_backup_folder(self) -> str:
-		return f"{self.DRIVER_LOCATION}/{self.APP_NAME_CLOSE_LOWER}/{self.BACKUPS_LOCATION_DIR_NAME}/{self.MAIN_BACKUP_LOCATION}"
-
-	def backup_folder_name(self) -> str:
-		return f"{self.DRIVER_LOCATION}/{self.APP_NAME_CLOSE_LOWER}/{self.BACKUPS_LOCATION_DIR_NAME}"
-
-	def create_base_folder(self) -> str:
-		return f"{self.DRIVER_LOCATION}/{self.APP_NAME_CLOSE_LOWER}"
-
-	def has_backup_dates_to_compare(self) -> list:
-		# Get all date folder names, parse them as dates, then sort from newest to oldest
-		valid_dates = []
-		for date in os.listdir(self.backup_folder_name()):
-			if '-' in date:
-				try:
-					# Attempt to parse the date
-					datetime.strptime(date, '%d-%m-%Y')
-					valid_dates.append(date)
-				except ValueError:
-					# Skip invalid folder names
-					continue
-		return sorted(
-			valid_dates,
-			key=lambda d: datetime.strptime(d, '%d-%m-%Y'),
-        	reverse=True  # Sort dates from newest to oldest
-		)
-	
-	################################################################################
-	# FLATPAK
-	def flatpak_txt_location(self) -> str:
-		return f"{self.DRIVER_LOCATION}/{self.APP_NAME_CLOSE_LOWER}/flatpak/flatpak.txt"
-
-	def flatpak_var_folder(self) -> str:
-		return f"{self.DRIVER_LOCATION}/{self.APP_NAME_CLOSE_LOWER}/flatpak/var"
-
-	def flatpak_local_folder(self) -> str:
-		return f"{self.DRIVER_LOCATION}/{self.APP_NAME_CLOSE_LOWER}/flatpak/share"
-
-	def get_next_day_name(self) -> str:
-		today = datetime.now()
-		next_day = today + timedelta(days=1)
-		next_day_name = next_day.strftime("%A").upper()
-		return next_day_name
-
-	# def get_next_day_timemframe(self):
-	# 	# Get next day array timeframe
-	# 	next_day_name_timeframe: str = self.get_database_value(
-	# 		section=self.get_next_day_name(),  # Next day string
-	# 		option='new_array')
-	# 	return next_day_name_timeframe
-
-	def get_database_value(self, section: str, option: str) -> str:
-		try:
-			# Check if config file exists and is loaded
-			if not os.path.exists(self.CONF_LOCATION):
-				logging.warning(f"Config file '{self.CONF_LOCATION}' does not exist. Cannot get value for {section}/{option}.")
-				# Reset self.CONF to an empty state if the file is gone,
-				# so subsequent checks for sections/options don't use stale data.
-				self.CONF = configparser.ConfigParser()
-				return None
-
-			# Re-read the configuration file to get the latest values
-			# This ensures that changes made by other processes (like the UI) are picked up.
-			# Use a temporary parser to avoid issues if the file is malformed during read.
-			temp_conf = configparser.ConfigParser()
-			read_ok = temp_conf.read(self.CONF_LOCATION)
-
-			if read_ok:
-				self.CONF = temp_conf # Update the instance's config object if read was successful
-			else:
-				# Log a warning but continue with the potentially stale self.CONF
-				# This might be preferable to returning None if the file is temporarily unreadable
-				# but was previously read successfully.
-				logging.warning(f"[CRITICAL]: Failed to re-read config file '{self.CONF_LOCATION}' in get_database_value. Using potentially stale data.")
-
-			if not self.CONF.has_section(section):
-				logging.debug(f"Section '{section}' not found in configuration.")
-				return None  # Or return a default value if needed
-
-			if not self.CONF.has_option(section, option):
-				logging.debug(f"Option '{option}' not found in section '{section}'.")
-				return None  # Or return a default value if needed
-
-			# Retrieve and convert the value
-			value = self.CONF.get(section, option)
-			return self.convert_result_to_python_type(value=value)
-
-		except BrokenPipeError:  
-			# Handle broken pipe without crashing
-			logging.warning(f"Broken Pipe Error in {self.APP_NAME}'s database: {e}")
-			return None
-		except FileNotFoundError as e:
-			logging.warning(f"[CRITICAL]: {self.APP_NAME}'s database not found: {e}")
-			return None
-		except Exception as e:
-			logging.warning(f"[CRITICAL]: {self.APP_NAME}'s database Exception: {e}")
-			return None
-		
-	def safe_write_config(config, file_path):
-		with open(file_path, 'w') as config_file:
-			# Lock the file for writing
-			fcntl.flock(config_file, fcntl.LOCK_EX)
-			config.write(config_file)
-			# Unlock the file
-			fcntl.flock(config_file, fcntl.LOCK_UN)
-
-	def set_database_value(self, section: str, option: str, value: str):
-		try:
-			if os.path.exists(self.CONF_LOCATION):
-				if not self.CONF.has_section(section):
-					self.CONF.add_section(section)
-
-				# Only update if the value has changed
-				if self.CONF.get(section, option, fallback=None) != value:
-					self.CONF.set(section, option, value)
-					with open(self.CONF_LOCATION, 'w') as configfile:
-						self.CONF.write(configfile)
-			else:
-				raise FileNotFoundError(f"Config file '{self.CONF_LOCATION}' not found")
-		except Exception as e:
-			logging.error(f"Error in set_database_value: {e}")
-			
-	# def set_database_value(self, section: str, option: str, value: str):
-	# 	try:
-	# 		# Ensure config file exists
-	# 		if os.path.exists(self.CONF_LOCATION):
-	# 			# Check if the section exists, if not, add it
-	# 			if not self.CONF.has_section(section):
-	# 				self.CONF.add_section(section)
-
-	# 			# Set the option value
-	# 			self.CONF.set(section, option, value)
-
-	# 			# Save the changes to the file
-	# 			with open(self.CONF_LOCATION, 'w') as configfile:
-	# 				self.CONF.write(configfile)
-	# 		else:
-	# 			raise FileNotFoundError(f"Config file '{self.CONF_LOCATION}' not found")
-
-	# 	except BrokenPipeError:
-	# 		# Handle broken pipe without crashing
-	# 		print("Broken pipe occurred, but the app continues running.")
-	# 	except FileNotFoundError as e:
-	# 		print(f"No connection to config file: {e}")
-	# 		exit()
-	# 	except Exception as e:
-	# 		current_function_name = inspect.currentframe().f_code.co_name
-	# 		print(f"Error in function {current_function_name}: {e}")
-	# 		exit()
-
-	# def write_backup_status(self, status:str):
-	# 	# Get stored driver_location and driver_name
-	# 	self.set_database_value(
-	# 		section='BACKUP',
-	# 		option='status',
-	# 		value=status)
+        # Get the directory where this script (server.py) is located
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(script_dir))  # Go up one level to the project root, then to config folder
+        self.CONF_PATH = os.path.join(project_root, "config", "config.conf")
         
-	# def read_backup_status(self) -> str:
-	# 	# Get stored driver_location and driver_name
-	# 	backup_status = self.get_database_value(
-	# 		section='BACKUP',
-	# 		option='status')
-	# 	return backup_status
+        # Backup structure
+        self.BACKUPS_LOCATION_DIR_NAME = "backups"
+        self.MAIN_BACKUP_LOCATION = '.main_backup'
 
-	def write_backup_status(self, status: str):
-		"""
-		Update the in-memory backup status and persist it to disk if necessary.
-		"""
-		self.backup_status = status  # Update the in-memory state
-		logging.info(f"Backup status updated: {status}")
+        # Initialize config
+        self.CONF = configparser.ConfigParser()
+        # if not os.path.exists(self.CONF_PATH):
+        #     self._create_default_config()
+        self.CONF.read(self.CONF_PATH)
+        
+        print(f"Looking for config at: {self.CONF_PATH}")
+        print(f"Config file exists: {os.path.exists(self.CONF_PATH)}")
+    
+        # Read configuration files
+        self.DRIVER_NAME = self.get_database_value('DEVICE_INFO', 'name')
+        self.DRIVER_PATH = self.get_database_value('DEVICE_INFO', 'path')
+        self.DRIVER_FILESYTEM = self.get_database_value('DEVICE_INFO', 'filesystem')
+        self.DRIVER_MODEL = self.get_database_value('DEVICE_INFO', 'model')
+        self.EXCLUDE_FOLDER = self.get_database_value('EXCLUDE_FOLDER', 'folders')
+        # self.DRIVER_DISK_TYPE = self.get_database_value('DEVICE_INFO', 'disk_type')
+        
+        self.WATCHED_FOLDERS = self.get_database_value('WATCHED', 'folders')
+        self.EXCLUDED_FOLDERS = self.get_database_value('EXCLUDE_FOLDER', 'folders')
 
-		# Optionally persist to disk (e.g., every 10 seconds or on shutdown)
-		# Uncomment the following line if persistence is required:
-		# self.set_database_value(section='BACKUP', option='status', value=status)
+        # Journal and metadata paths
+        journal_log = ".backup_journal.log"
+        metadata = ".backup_manifest.json"
+        self.JOURNAL_LOG_FILE: str = os.path.join(self.devices_path(), journal_log)
+        self.METADATA_FILE: str = os.path.join(self.devices_path(), metadata)
+        
+        # Summary file paths
+        self.SUMMARY_SCRIPT_FILE: str = "generate_backup_summary.py"
+        self.SUMMARY_FILENAME: str = ".backup_summary.json"
+        self.SUMMARY_FILE_PATH: str = os.path.join(self.devices_path(), self.SUMMARY_FILENAME)
+        
+        # In-memory state
+        self.backup_status = "Idle"
 
-	def read_backup_status(self) -> str:
-		"""
-		Retrieve the current backup status from memory.
-		"""
-		return self.backup_status
+        # Ensure necessary directories exist    
+        self._necessary_directories()
 
-	def print_progress_bar(self, progress: int, total: int, start_time: float) -> str:
-		bar_length: int = 50
-		percent: float = float(progress / total)
-		filled_length: int = int(round(bar_length * percent))
-		bar = f'|' + '#' * filled_length + '-' * (bar_length - filled_length) + '|'
+    def _necessary_directories(self):
+        """Ensure necessary directories exist."""
+        # Create base folder
+        base_folder = self.devices_path()
+        os.makedirs(base_folder, exist_ok=True)
 
-		# Calculate elapsed time
-		elapsed_time = time.time() - start_time
-		velocity = progress / elapsed_time if elapsed_time > 0 else 0
+        # Create backup folder
+        backup_folder = self.app_backup_dir()
+        os.makedirs(backup_folder, exist_ok=True)
 
-		if velocity > 0:
-			estimated_time_left = (total - progress) / velocity
-			hours, remainder = divmod(estimated_time_left, 3600)
-			minutes, seconds = divmod(remainder, 60)
-		# 	estimated_time_str = f'Estimated Time Left: {int(hours)}h {int(minutes)}m {int(seconds)}s'
-		# else:
-		# 	estimated_time_str = 'Estimated Time Left: N/A'  # If velocity is 0, show N/A
+        # Create main backup folder
+        main_backup_folder = self.app_main_backup_dir()
+        os.makedirs(main_backup_folder, exist_ok=True)
 
-		# Show progress and estimated time
-		if progress >= (total / 2):  # Only show estimated time at min. 50%
-			estimated_time_str = f'Estimated Time Left: {int(hours)}h {int(minutes)}m {int(seconds)}s'
-		else:
-			estimated_time_str = 'Estimated Time Left: Calculating...'
+    def _create_default_config(self):
+        """Create default configuration file."""
+        config_dir = os.path.dirname(self.CONF_PATH)
+        os.makedirs(config_dir, exist_ok=True)
+        
+        self.CONF['BACKUP'] = {
+            'automatically_backup': 'false',
+            'backing_up': 'false'
+        }
+        
+        self.CONF['DEVICE_INFO'] = {
+            'path': self._get_default_backup_location(),
+            'name': 'default'
+        }
+        
+        self.CONF['EXCLUDE'] = {
+            'exclude_hidden_itens': 'true'
+        }
+        
+        self.CONF['EXCLUDE_FOLDER'] = {
+            'folders': ''
+        }
+        
+        with open(self.CONF_PATH, 'w') as config_file:
+            self.CONF.write(config_file)
 
-		# print(f'Progress: {progress}/{total} ({percent:.0%}) - {bar} | '
-		# 	f'Time Elapsed: {int(elapsed_time)}s | '
-		# 	f'Velocity: {velocity:.2f} files/s | '
-		# 	f'{estimated_time_str}', end='\r')
-		# print()
+    def _get_default_backup_location(self):
+        """Get default backup location (user's home directory)."""
+        return os.path.expanduser("~")
 
-	def copytree_with_progress(self, src: str, dst: str) -> None:
-		num_files = sum([len(files) for r, d, files in os.walk(src)])
-		progress: int = 0
+    def has_driver_connection(self, path):
+        """Check if backup location is accessible."""
+        try:
+            return os.path.exists(path)
+        except Exception:
+            return False
 
-		try:
-			# Handle source as a file or directory
-			if os.path.isfile(src):
-				dst_without_filename = '/'.join(dst.split('/')[:-1])
 
-				os.makedirs(dst_without_filename, exist_ok=True)
-				shutil.copy2(src, dst)
+    # =============================================================================
+    # BACKUP FOLDERS PATHS
+    # =============================================================================
+    def app_backup_dir(self):
+        """Get main backup folder path."""
+        return f"{self.devices_path()}/{self.BACKUPS_LOCATION_DIR_NAME}"
 
-				#print(f"\033[92m[✓]\033[0m {src} -> {dst}")
-			elif os.path.isdir(src):
-				for root, dirs, files in os.walk(src):
-					for dir in dirs:
-						source_folder: str = os.path.join(root, dir)
-						destination_dir: str = source_folder.replace(src, dst, 1)
+    def app_main_backup_dir(self):
+        """Get main backup path."""
+        return f"{self.app_backup_dir()}/{self.MAIN_BACKUP_LOCATION}"
 
-						os.makedirs(destination_dir, exist_ok=True)
+    def app_incremental_backup_dir(self) -> str:
+        """Get current incremental backup path."""
+        return os.path.join(self.app_backup_dir(), time.strftime("%d-%m-%Y"), time.strftime("%H-%M"))
 
-					for file in files:
-						src_file: str = os.path.join(root, file)
-						dst_file: str = src_file.replace(src, dst, 1)
+    def devices_name(self) -> str:
+        """Get devices name."""
+        return self.get_database_value('DEVICE_INFO', 'name')
 
-						os.makedirs(dst_file, exist_ok=True)
-						shutil.copy2(src_file, dst_file)
+    def devices_path(self) -> str:
+        f"""Get devices path. e.g.: /media/usb/{self.APP_NAME_CLOSE_LOWER}"""
+        device_info_path = self.get_database_value('DEVICE_INFO', 'path')
+        if device_info_path:
+            return os.path.join(device_info_path, self.APP_NAME_CLOSE_LOWER)
 
-						progress += 1
+        """/media/geovane/usb80GB"""
+    def devices_filesystem(self) -> str:
+        """Get devices filesystem type."""
+        return self.get_database_value('DEVICE_INFO', 'filesystem')
 
-						#print(f"\033[92m[✓]\033[0m {src_file} -> {dst_file}")
-						self.print_progress_bar(progress, num_files)
-		except Exception as e:
-			logging.error(f"copytree_with_progress: {e}")
+    def devices_model(self) -> str:
+        """Get devices model type."""
+        return self.get_database_value('DEVICE_INFO', 'model')
 
-	def update_recent_backup_information(self):
-		current_datetime: datetime = datetime.now()  # Get the current date and time
-		# Format the datetime as a string
-		formatted_datetime: str = str(
-			current_datetime.strftime("%d-%m-%Y %H:%M:%S"))
-		
-		# Update the conf file
-		self.set_database_value(
-			section='RECENT',
-			option='recent_backup_timeframe',
-			value=formatted_datetime)
-		
-	def setup_logging(self):
-		"""Sets up logging for file changes."""
-		log_file_path = self.get_log_file_path()
+    def devices_excluded_folders(self):
+        """Get devices model type."""
+        return self.get_database_value('EXCLUDE_FOLDER', 'folders')
 
-		MAX_LOG_SIZE: int = 20 * 1024 * 1024  # Example: 20 MB
 
-		# Check if the directory for the log file exists; if not, create it
-		log_dir = os.path.dirname(log_file_path)
+    # =============================================================================
+    # DATABASE HANDLER
+    # =============================================================================
+    def get_database_value(self, section, option):
+        """Get value from configuration file."""
+        try:
+            if not os.path.exists(self.CONF_PATH):
+                return None
+            
+            # Re-read config to get latest values
+            temp_conf = configparser.ConfigParser()
+            read_ok = temp_conf.read(self.CONF_PATH)
+            if read_ok:
+                self.CONF = temp_conf
+            
+            if not self.CONF.has_section(section) or not self.CONF.has_option(section, option):
+                return None
+                
+            value = self.CONF.get(section, option)
+            return self._convert_to_python_type(value)
+            
+        except Exception as e:
+            logging.error(f"Error reading config: {e}")
+            return None
 
-		os.makedirs(log_dir, exist_ok=True)  # Create the directory for the log file
-		# Ensure directory and file have correct permissions (user read/write/execute)
-		os.chmod(log_dir, 0o700)  # Only owner can read/write/execute
+    def _convert_to_python_type(self, value):
+        """Convert string config values to Python types."""
+        if value.lower() in ('true', 'yes', '1'):
+            return True
+        elif value.lower() in ('false', 'no', '0'):
+            return False
+        elif value.lower() in ('none', 'null', ''):
+            return None
+        return value
 
-		"""Check log file size and delete if it exceeds the limit."""
-		if os.path.exists(log_file_path):
-			log_size = os.path.getsize(log_file_path)
-			if log_size > MAX_LOG_SIZE:
-				# Delete the log file if it exceeds the max size
-				os.remove(log_file_path)
-		else:
-			# Create a new empty log file
-			with open(log_file_path, 'w'):
-				pass
+    def set_database_value(self, section, option, value):
+        """Set value in configuration file."""
+        try:
+            if not os.path.exists(self.CONF_PATH):
+                self._create_default_config()
+            
+            if not self.CONF.has_section(section):
+                self.CONF.add_section(section)
+            
+            self.CONF.set(section, option, str(value))
+            
+            with open(self.CONF_PATH, 'w') as configfile:
+                self.CONF.write(configfile)
+                
+        except Exception as e:
+            logging.error(f"Error writing config: {e}")
 
-		# # Convert the timestamp to a human-readable format
-		# timestamp = source["date"]
-		# human_readable_date = datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+    def get_metadata(self):
+        """Load metadata from JSON file."""
+        if not os.path.exists(self.METADATA_FILE):
+            return {}
+        
+        try:
+            with open(self.METADATA_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logging.error(f"Error loading metadata: {e}")
+            return {}
 
-		logging.basicConfig(
-							filename=log_file_path,
-							level=logging.INFO,
-							format='%(asctime)s - %(message)s')
-		console_handler = logging.StreamHandler()
-		console_handler.setLevel(logging.INFO)
-		formatter = logging.Formatter('%(asctime)s - %(message)s')
-		console_handler.setFormatter(formatter)
-		logging.getLogger().addHandler(console_handler)
+    def save_metadata(self, metadata):
+        """Save metadata to JSON file with atomic write."""
+        if not metadata and os.path.exists(self.METADATA_FILE):
+            logging.warning("Refusing to overwrite metadata with empty data")
+            return False
+        
+        # Create backup of existing metadata
+        if os.path.exists(self.METADATA_FILE):
+            try:
+                backup_path = f"{self.METADATA_FILE}.bak.{time.strftime('%Y%m%d-%H%M%S')}"
+                shutil.copy2(self.METADATA_FILE, backup_path)
+            except Exception as e:
+                logging.warning(f"Could not create metadata backup: {e}")
 
+        # Clean up old metadata backups
+        try:
+            # This value should ideally be configurable.
+            # We'll use a hardcoded value that matches the daemon's setting.
+            meta_backup_keep = 3  # Number of metadata backups to keep 
+            backup_dir = os.path.dirname(self.METADATA_FILE)
+            meta_name = os.path.basename(self.METADATA_FILE)
+            
+            # Find all backup files, sort them from newest to oldest
+            all_backups = sorted(
+                [f for f in os.listdir(backup_dir) if f.startswith(f"{meta_name}.bak.")],
+                reverse=True
+            )
+            
+            # Remove backups that exceed the keep limit
+            for old_backup in all_backups[meta_backup_keep:]:
+                os.remove(os.path.join(backup_dir, old_backup))
+                logging.info(f"Deleted old metadata backup: {old_backup}")
+        except Exception as e:
+            logging.warning(f"Could not clean up old metadata backups: {e}")
+        
+        # Atomic write
+        tmp_path = None
+        try:
+            os.makedirs(os.path.dirname(self.METADATA_FILE), exist_ok=True)
+            
+            fd, tmp_path = tempfile.mkstemp(prefix=".meta_tmp_", dir=os.path.dirname(self.METADATA_FILE))
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            
+            os.replace(tmp_path, self.METADATA_FILE)
+            return True
+            
+        except Exception as e:
+            logging.error(f"Failed to save metadata: {e}")
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+            return False
+        
+    # =============================================================================
+    # CALCULATIONS
+    # =============================================================================        
+    def bytes_to_human(size) -> str:
+        """Convert bytes to human-readable format"""
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size < 1024.0:
+                break
+            size /= 1024.0
+        return f"{size:.1f} {unit}"
+    
+    def write_backup_status(self, status):
+        """Update backup status."""
+        self.backup_status = status
+        logging.info(f"Backup status: {status}")
+
+    def read_backup_status(self):
+        """Get current backup status."""
+        return self.backup_status
+
+    def is_first_backup(self):
+        """Check if this is the first backup."""
+        try:
+            return not os.path.exists(self.app_main_backup_dir())
+        except Exception:
+            return True
 
 if __name__ == "__main__":
-	pass
+    # server = SERVER()
+    pass

@@ -1,65 +1,18 @@
-# app.py
-import getpass
-import os
-import pathlib
-import itertools
-import subprocess as sub
-import configparser
-import shutil
-import time
-import sys
-import signal
-import asyncio
-import threading
-from threading import Timer
-from queue import Queue, Empty
-import multiprocessing
-import locale
-import logging
-import traceback
-import socket
-import errno
-import setproctitle
-import csv
-import random
-import platform
-import inspect
-import gi
-import json
-import fnmatch
-import hashlib
-import stat
-import psutil
-import fcntl
-import mimetypes
-import cairo
-import tempfile
-import math
-import difflib 
-from concurrent.futures import ProcessPoolExecutor
 from static.py.server import *
 
 server = SERVER()
-
-# Constants
-HOME_USERNAME: str = os.path.join(os.path.expanduser("~"))
-USERNAME: str = getpass.getuser()
-
-MEDIA = '/media'
-RUN = '/run'
-USERNAME = os.getenv('USER', 'user')  # Default to 'user' if USER env var is not set
-LOG = logging.getLogger(__name__)
 
 
 class SeachHandler:
     def __init__(self):
         ##########################################################################
-		# VARIABLES
-		##########################################################################
+        # VARIABLES
+        ##########################################################################
         self.selected_file_path: bool = None
-        self.MAIN_BACKUP_FOLDER: str = f"/media/{USERNAME}/{server.BACKUP_FOLDERS_NAME}/{server.APP_NAME_CLOSE_LOWER}/{server.BACKUPS_LOCATION_DIR_NAME}/{server.MAIN_BACKUP_LOCATION}"
-        self.documents_path: str = os.path.expanduser(self.MAIN_BACKUP_FOLDER)
+        app_main_backup_dir: str = server.app_main_backup_dir()
+        self.main_files_dir: str = os.path.expanduser(app_main_backup_dir)
         self.location_buttons: list = []
+        
         # For search
         self.files: list = [] # Holds dicts of scanned files from .main_backup
         self.file_names_lower: list = [] # Lowercase basenames for searching
@@ -67,7 +20,12 @@ class SeachHandler:
         self.last_query: str = ""
         self.files_loaded: bool = False # Flag indicating if initial scan is complete
         self.pending_search_query: str = None # Stores search query if files aren't loaded yet
-        self.scan_files_folder_threaded()
+        
+        # Cache system
+        self._files_cache = None
+        self._cache_time = 0
+        self.CACHE_DURATION = 300  # 5 minutes
+        
         self.thumbnail_cache = {} # For in-memory thumbnail caching
         self.ignored_folders = []
         self.page_size = 17  # Number of results per page
@@ -81,108 +39,108 @@ class SeachHandler:
         self.search_spinner = None # Initialize search spinner
         self.starred_files_flowbox = None # For the "Starred Items" section
         self.starred_files = [] # Use a list to maintain order for starred files
+        
+        # Initialize with cached files if available
+        self.scan_files_folder_threaded()
 
-    def perform_search(self, query):
-        """Perform the search and update the results."""
+    def get_files(self):
+        """Get cached files or scan if cache is expired"""
+        current_time = time.time()
+        if (self._files_cache is None or 
+            current_time - self._cache_time > self.CACHE_DURATION):
+            self._files_cache = self._scan_files()
+            self._cache_time = current_time
+            self.files_loaded = True
+        return self._files_cache
+
+    def _scan_files(self):
+        """Scan files and return a list of file dictionaries."""
+        print("Searching in:", self.main_files_dir)
+        if not os.path.exists(self.main_files_dir):
+            print(f"Documents path for scanning does not exist: {self.main_files_dir}")
+            return []
+        
+        print("Caching files, Please Wait...")
+
+        file_list = []
+        # base_for_rel_path is the folder *containing* .main_backup, i.e., server.backup_folder_name()
+        base_for_search_display_path = os.path.dirname(self.main_files_dir) 
+
+        for root, dirs, files in os.walk(self.main_files_dir):
+            # Optionally, add logic here to exclude hidden directories or specific directories
+            # dirs[:] = [d for d in dirs if not d.startswith('.')] # Example: exclude hidden dirs
+            for file_name in files:
+                # Optionally, add logic here to exclude hidden files
+                # if file_name.startswith('.'): continue # Example: exclude hidden files
+                file_path = os.path.join(root, file_name)
+                file_date = os.path.getmtime(file_path)
+                search_display_path = os.path.relpath(file_path, base_for_search_display_path)
+                file_list.append({
+                    "name": file_name, 
+                    "path": file_path, 
+                    "date": file_date, 
+                    "search_display_path": search_display_path
+                })
+        return file_list
+
+    def perform_search(self, query: str):
+        """Perform the search using cached files"""
         try:
-            query = query.strip().lower()
+            # Use cached files instead of scanning every time
+            files_data = self.get_files()
+            
+            # Update the instance variables for backward compatibility
+            self.files = files_data
+            self.file_names_lower = [f["name"].lower() for f in files_data]
+            self.file_search_display_paths_lower = [f["search_display_path"].lower().replace(os.sep, "/") for f in files_data]
+            
+            query = str(query).strip().lower()
             if not query:
-                return
+                return []
 
             def search_backup_sources(query):
-                # With index
                 matches = []
                 for idx, name in enumerate(self.file_names_lower):
                     # Check against basename or the searchable display path
                     if query in name or query in self.file_search_display_paths_lower[idx]:
                         matches.append(self.files[idx])
-                #matches.sort(key=lambda x: x["date"], reverse=True)
                 return matches[:self.page_size]
 
             results = search_backup_sources(query)
+            
         except AttributeError as e:
-            # This is a fallback. Ideally, the `if not self.files_loaded` check prevents this.
-            # If this happens, it indicates a deeper issue with state management during file loading.
             print(f"Critical Search Error (AttributeError): {e}. File attributes might be missing.")
             print("Attempting to re-initialize file scan and deferring search.")
-            self.files_loaded = False  # Mark as not loaded to ensure re-check/re-scan
-            self.pending_search_query = query # Re-queue the current search
-            self.scan_files_folder_threaded() # Re-trigger the scan
+            self.files_loaded = False
+            self.pending_search_query = query
+            self.scan_files_folder_threaded()
             results = []
         except Exception as e:
             print(f"Error during search: {e}")
             results = []
 
-        # Return results
         print(f"Search completed. Found {len(results)} results for query: '{query}'")
         return results
-    
-    ##########################################################################
-    # SOCKET
-    ##########################################################################
-    def _send_message_to_frontend(self, message_type, data=None):
-        try:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.connect(server.SOCKET_PATH)
-            sock.sendall(message_type.encode("utf-8"))
-            sock.close()
-        except socket.timeout:
-            logging.warning(f"self._send_message_to_frontend: Socket operation timed out for {server.SOCKET_PATH}.")
-        except FileNotFoundError:
-            logging.debug(f"self._send_message_to_frontend: Socket file not found at {server.SOCKET_PATH}. UI likely not running or socket not created yet.")
-        except ConnectionRefusedError:
-            # This is common if UI is not running, can be debug level if too noisy
-            logging.debug(f"self._send_message_to_frontend: Connection refused at {server.SOCKET_PATH}. UI likely not running or not listening.")
-        except Exception as e:
-            # Log other unexpected errors during UI communication
-            logging.warning(f"self._send_message_to_frontend: Error communicating with UI via {server.SOCKET_PATH}: {e}")
 
-    ##########################################################################
-    # SEARCH ENTRY
-    ##########################################################################
     def scan_files_folder_threaded(self):
-        def scan_files_folder():
-            print("Searching in:", self.documents_path)
-            """Scan files and return a list of file dictionaries."""
-            if not os.path.exists(self.documents_path):
-                print(f"Documents path for scanning does not exist: {self.documents_path}")
-                return []
-            
-            print("Caching files, Please Wait...")
-
-            file_list = []
-            # base_for_rel_path is the folder *containing* .main_backup, i.e., server.backup_folder_name()
-            base_for_search_display_path = os.path.dirname(self.documents_path) 
-
-            for root, dirs, files in os.walk(self.documents_path):
-                # Optionally, add logic here to exclude hidden directories or specific directories
-                # dirs[:] = [d for d in dirs if not d.startswith('.')] # Example: exclude hidden dirs
-                for file_name in files:
-                    # Optionally, add logic here to exclude hidden files
-                    # if file_name.startswith('.'): continue # Example: exclude hidden files
-                    file_path = os.path.join(root, file_name)
-                    file_date = os.path.getmtime(file_path)
-                    search_display_path = os.path.relpath(file_path, base_for_search_display_path)
-                    file_list.append({"name": file_name, "path": file_path, "date": file_date, "search_display_path": search_display_path})
-            return file_list
-
+        """Scan files in background thread and update cache"""
         def scan():
             try:
-                # --- Send signal to socket ---
-                self._send_message_to_frontend("scan_complete", {"status": "scanning"})
+                # Send proper JSON message
+                self._send_message_to_frontend("scanning", {"status": "started", "message": "Starting file scan..."})
 
-                self.files = scan_files_folder()
-                self.file_names_lower = [f["name"].lower() for f in self.files]
-                self.file_search_display_paths_lower = [f["search_display_path"].lower().replace(os.sep, "/") for f in self.files]
-                self.files_loaded = True  # Mark files as loaded only after successful initialization
+                # Use the caching method
+                files_data = self.get_files()
+                
+                # Update instance variables
+                self.files = files_data
+                self.file_names_lower = [f["name"].lower() for f in files_data]
+                self.file_search_display_paths_lower = [f["search_display_path"].lower().replace(os.sep, "/") for f in files_data]
+                self.files_loaded = True
 
-                # --- Send signal to socket ---
+                # Send proper JSON completion message
                 print("Caching completed!")
-                self._send_message_to_frontend("scan_complete", {"status": "success"})
-
-                # You might also want to send the initial file list for display if needed
-                # self._send_message_to_frontend("initial_file_list", {"files": self.files[:self.page_size]})
-                # --- END NEW ---
+                self._send_message_to_frontend("scan_complete", {"status": "success", "message": "File caching completed", "file_count": len(files_data)})
 
             except Exception as e:
                 print(f"Error during background file scanning: {e}")
@@ -190,54 +148,51 @@ class SeachHandler:
                 self.files = []
                 self.file_names_lower = []
                 self.file_search_display_paths_lower = []
-                self.files_loaded = False # Crucial: mark as not loaded
-                # GLib.idle_add(self._hide_center_spinner) # Hide spinner on error
-                return # Stop further processing in this thread if scanning failed
-
-            # # If scan was successful and files are loaded, process any pending/last search
-            # # hide_spinner_after_scan = True
-            # if self.pending_search_query is not None:
-            #     # GLib.idle_add(self.perform_search, self.pending_search_query)
-            #     self.pending_search_query = None
-            #     # hide_spinner_after_scan = False # perform_search will hide it
-            # elif self.last_query:
-            #     pass
-            #     # GLib.idle_add(self.perform_search, self.last_query)
-            #     # hide_spinner_after_scan = False # perform_search will hide it
-            # else: # No search query, populate with latest backups as default
-            #     pass
-            #     # GLib.idle_add(self.populate_latest_backups)
-            #     # populate_latest_backups itself calls _hide_center_spinner if it populates results
-            #     # but to be safe, ensure it's hidden if it doesn't populate anything.
-            #     # However, populate_latest_backups calls populate_results which will hide it.
-
-            # if hide_spinner_after_scan: # If no search took over, hide the initial scanning spinner
-            #     GLib.idle_add(self._hide_center_spinner)
-
-
+                self.files_loaded = False
+                self._files_cache = None  # Clear cache on error
+                
+                # Send error message
+                self._send_message_to_frontend("scan_error", {"status": "error", "message": str(e)})
 
         threading.Thread(target=scan, daemon=True).start()
-        # scan()
 
+    def clear_cache(self):
+        """Clear the file cache (useful when backup files change)"""
+        self._files_cache = None
+        self._cache_time = 0
+        self.files_loaded = False
 
-    # # 1. Cache user's home files
-    # # 2. Filter using query search
-    # def handle_query(self, query: str) -> dict:
-    #     backup_service = SeachHandler()
-        
-    #     # scan_files_folder_threaded is called in __init__ which starts the thread
-    #     # We need to wait for the thread to complete its work
-        
-    #     print("Starting file scan in background...")
-        
-    #     # Wait until files are loaded. In a real application, you might use an Event.
-    #     # For a simple script, a loop with time.sleep works to demonstrate.
-    #     while not backup_service.files_loaded:
-    #         time.sleep(0.5) # Wait for 500 milliseconds before checking again
-        
-    #     print("Files are loaded. Performing search.")
-    #     backup_service.perform_search(query)
-
+    ##########################################################################
+    # SOCKET
+    ##########################################################################
+    def _send_message_to_frontend(self, message_type, data=None):
+        """Send proper JSON messages to the frontend via UNIX socket"""
+        try:
+            # Create proper JSON message
+            message_data = {
+                "type": message_type,
+                "data": data or {},
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Convert to JSON string
+            json_message = json.dumps(message_data) + "\n"
+            
+            # Send via socket
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.settimeout(2)  # Add timeout
+            sock.connect(server.SOCKET_PATH)
+            sock.sendall(json_message.encode("utf-8"))
+            sock.close()
+            
+        except socket.timeout:
+            logging.warning(f"Socket operation timed out for {server.SOCKET_PATH}.")
+        except FileNotFoundError:
+            logging.debug(f"Socket file not found at {server.SOCKET_PATH}. UI likely not running.")
+        except ConnectionRefusedError:
+            logging.debug(f"Connection refused at {server.SOCKET_PATH}. UI likely not running.")
+        except Exception as e:
+            logging.warning(f"Error communicating with UI via {server.SOCKET_PATH}: {e}")
 
 if __name__ == "__main__":    
     pass

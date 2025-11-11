@@ -103,10 +103,13 @@
 /* ======================
    NAVIGATION
    ====================== */
-.nav-item.active {
-    background-color: #4F46E5;
-    color: #4F46E5;
+.nav-item.active, .nav-item:hover {
+    cursor: pointer;
+    transition: all 0.2s ease;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
+
 .tab-active {
     border-bottom: 2px solid #4F46E5;
     color: #4F46E5;
@@ -148,6 +151,7 @@
 .exclusion-badge:hover {
     background-color: #FECACA;
 }
+
 
 /* ======================
    COLOR UTILITIES
@@ -213,9 +217,12 @@
     transition: all 0.2s ease;
 }
 .file-item:hover {
+    cursor: pointer;
     transform: translateY(-1px);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
+
+
 .action-btn {
     padding: 0.5rem 1rem;
     border-radius: 0.375rem;
@@ -408,4 +415,40 @@ input[type="range"]::-moz-range-thumb {
     word-break: break-word;
     overflow-wrap: break-word;
     max-width: 100%;
+}
+
+/* ======================
+   ACTIVITY FEED STYLES
+   ====================== */
+.activity-item {
+    border-left: 3px solid transparent;
+    padding-left: 8px;
+}
+
+.activity-item[data-activity-type="scanning"] {
+    border-left-color: #3b82f6; /* blue-500 */
+}
+
+.activity-item[data-activity-type="transfer"] {
+    border-left-color: #8b5cf6; /* indigo-500 */
+}
+
+.activity-item[data-activity-type="completed"] {
+    border-left-color: #10b981; /* green-500 */
+}
+
+.activity-item[data-activity-type="error"] {
+    border-left-color: #f59e0b; /* yellow-500 */
+}
+
+/* Ensure proper truncation for long filenames */
+.truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Smooth progress bar animations */
+.progress-bar {
+    transition: width 0.3s ease-in-out;
 }

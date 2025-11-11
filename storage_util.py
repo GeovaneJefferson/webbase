@@ -1,15 +1,3 @@
-import os
-import shutil
-import subprocess
-import re
-from pathlib import Path
-import configparser
-import logging
-import platform
-import psutil
-import json
-from typing import Optional, List, Dict, Union
-import stat
 from static.py.server import *
 
 # Constants
@@ -17,6 +5,9 @@ MEDIA = '/media'
 RUN = '/run'
 USERNAME = os.getenv('USER', 'user')  # Default to 'user' if USER env var is not set
 LOG = logging.getLogger(__name__)
+
+bytes_to_human = SERVER.bytes_to_human
+
 
 def get_storage_info(path=None):
     try:
@@ -55,14 +46,6 @@ def get_storage_info(path=None):
             'success': False,
             'error': str(e)
         }
-    
-def bytes_to_human(size: int, decimal_places: int = 1) -> str:
-    """Convert bytes to human-readable format"""
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-        if size < 1024.0:
-            break
-        size /= 1024.0
-    return f"{size:.{decimal_places}f} {unit}"
 
 def get_all_storage_devices() -> List[Dict[str, Union[str, int, float]]]:
     """
@@ -141,7 +124,7 @@ def _get_linux_devices() -> List[Dict]:
         # Use lsblk to get a comprehensive JSON output of block devices
         # -b for bytes, -o for columns
         result = subprocess.run(
-            ['lsblk', '-J', '-b', '-o', 'NAME,MOUNTPOINT,LABEL,SIZE,FSTYPE,TYPE,MODEL,SERIAL'],
+            ['lsblk', '-J', '-b', '-o', 'NAME,MOUNTPOINT,LABEL,SIZE,FSTYPE,TYPE,MODEL,SERIAL,ROTA'],
             capture_output=True,
             text=True,
             check=True
@@ -176,6 +159,9 @@ def _get_linux_devices() -> List[Dict]:
                 # Get extra info from our lsblk map
                 extra_info = lsblk_info.get(part.device, {})
 
+                # ROTA is '0' for SSD/NVMe and '1' for HDD. lsblk JSON returns boolean false/true.
+                is_ssd = extra_info.get('rota') is False
+
                 device_info = {
                     'device': part.device,
                     'mount_point': part.mountpoint,
@@ -189,6 +175,7 @@ def _get_linux_devices() -> List[Dict]:
                     'serial_number': extra_info.get('serial', 'N/A'),
                     'model': extra_info.get('model', 'N/A'),
                     'type': extra_info.get('type', 'partition'),
+                    'is_ssd': is_ssd,
                     'total': usage.total,
                     'used': usage.used,
                     'free': usage.free,

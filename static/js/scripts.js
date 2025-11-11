@@ -1,3 +1,6 @@
+const MAX_LOG_ITEMS = 8;
+
+
 // =============================================
 // APPLICATION STATE
 // =============================================
@@ -20,6 +23,7 @@ class AppState {
 
 const appState = new AppState();
 
+
 // =============================================
 // DOM ELEMENTS
 // =============================================
@@ -41,6 +45,7 @@ class Elements {
         this.selectedDevicePath = document.getElementById('selectedDevicePath');
         this.selectedDeviceStats = document.getElementById('selectedDeviceStats');
         this.selectedDeviceInfo = document.getElementById('selectedDeviceInfo');
+        this.confirmSelectionBtn = document.getElementById('confirmSelectionBtn');
         
         this.devicesName = document.getElementById('devicesName');
         this.deviceMountPoint = document.getElementById('deviceMountPoint');
@@ -71,24 +76,30 @@ class Elements {
 
 const elements = new Elements();
 
+
 // =============================================
 // UTILITY FUNCTIONS
 // =============================================
 class Utils {
     static formatBytes(bytes, decimals = 2) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[i];
-    };
+            // FIX: Safely convert input to a number and check for invalid/non-positive values.
+            const safeBytes = Number(bytes);
+
+            if (isNaN(safeBytes) || safeBytes <= 0) return '0 Bytes';
+            
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            
+            // Use safeBytes for calculation
+            const i = Math.floor(Math.log(safeBytes) / Math.log(k));
+            const effectiveIndex = Math.min(i, sizes.length - 1);
+
+            return parseFloat((safeBytes / Math.pow(k, effectiveIndex)).toFixed(decimals)) + ' ' + sizes[effectiveIndex];
+        };
 
     static getDeviceIcon(device) {
-        if (!device) return 'fas fa-usb';
-        if (device.device?.includes('nvme')) return 'fas fa-solid fa-memory';
-        if (device.device?.includes('sd') || device.device?.includes('hd')) return 'fas fa-hdd';
-        if (device.device?.includes('mmc')) return 'fas fa-sd-card';
-        return 'fas fa-usb';
+        if (!device) return 'fa-brands fa-usb';
+        return getFileIconDetails(device.filesystem).iconClass;  // Return correct icon class
     };
 
     static getDeviceIconClass(device) {
@@ -144,6 +155,223 @@ class Utils {
         return thumbnails[ext] || thumbnails.default;
     }
 };
+
+
+// =============================================
+// WEBSOCKET CLIENT
+// =============================================
+class BackupStatusClient {
+    constructor() {
+        this.ws = null;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 5;
+        this.heartbeatInterval = null;
+        this.pongTimeout = null; // <-- NEW: Timer for pong response timeout
+        this.PING_INTERVAL = 30000; // 30 seconds
+        this.PONG_TIMEOUT_DURATION = 5000; // 5 seconds extra to receive pong
+        this.init();
+    }
+
+    init() {
+        this.connect();
+    }
+
+    connect() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws`;
+        
+        console.log('Connecting to WebSocket:', wsUrl);
+        this.ws = new WebSocket(wsUrl);
+        
+        this.ws.onopen = () => {
+            this.reconnectAttempts = 0;
+            this.updateConnectionStatus(true);
+            this.startHeartbeat();
+        };
+
+        this.ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                this.handleMessage(data);
+            } catch (error) {
+            }
+        };
+
+        this.ws.onclose = () => {
+            this.updateConnectionStatus(false);
+            this.stopHeartbeat();
+            this.clearPongTimeout();
+            this.attemptReconnect();
+        };
+
+        this.ws.onerror = (error) => {
+            this.updateConnectionStatus(false);
+            this.ws.close();
+        };
+    }
+
+    // This is the local handleMessage, is used to "filter" the information
+    // Send curated info the UI messager handler (handleMessage)
+    handleMessage(data) {
+        // Handle PONG to reset timeout ---
+        if (data.type === 'pong') {
+            this.clearPongTimeout();
+            return; 
+        }
+        // Route all activity-related messages to ActivityManager
+        if (data.type === 'scanning'  || data.type === 'analyzing' || 
+            data.type === 'progress' || data.type === 'completed' || 
+            data.type === 'warning' || data.type === 'info') {
+            
+            UIMessageHandler.handleMessage(data);
+            
+            // Clear analyzing/progress when backup completes
+            if (data.type === 'completed') {
+                ActivityManager.clearAnalyzingActivity();
+                ActivityManager.clearProgressActivity();
+            }
+        }
+    }
+
+    // Clear pong in timeout
+    clearPongTimeout() {
+        if (this.pongTimeout) {
+            clearTimeout(this.pongTimeout);
+            this.pongTimeout = null;
+        }
+    }
+
+    // Recent Activities bubble; Backup device status. Connected or Disconnected.
+    updateConnectionStatus(connected) {
+        const statusElement = document.getElementById('realTimeStatusLabel');
+        if (statusElement) {
+            if (connected) {
+                statusElement.className = 'fas fa-circle text-green-500 mr-1 text-xs';
+                statusElement.title = 'Connected to backup daemon';
+            } else {
+                statusElement.className = 'fas fa-circle text-red-500 mr-1 text-xs';
+                statusElement.title = 'Disconnected from backup daemon';
+            }
+        }
+    }
+
+    attemptReconnect() {
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.reconnectAttempts++;
+            const delay = Math.min(1000 * this.reconnectAttempts, 10000);
+            setTimeout(() => this.connect(), delay);
+        } else {
+            console.error('❌ Max reconnection attempts reached');
+            this.updateConnectionStatus(false);
+        }
+    }
+
+    sendPing() {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
+            this.startPongTimeout(); // <-- Start timeout after sending ping
+        }
+    }
+
+    startHeartbeat() {
+        // Clear existing interval
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+        }
+        // Send ping every 30 seconds to keep connection alive
+        this.heartbeatInterval = setInterval(() => this.sendPing(), 30000);
+    }
+
+    stopHeartbeat() {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+        }
+    }
+    
+    startPongTimeout() {
+        this.clearPongTimeout(); // Clear any previous timeout
+        this.pongTimeout = setTimeout(() => {
+            if (this.ws.readyState === WebSocket.OPEN) {
+                console.warn('❌ Heartbeat failed. Server pong timeout reached.');
+                // FORCING CLOSURE triggers onclose(), which attempts reconnect
+                this.ws.close(); 
+            }
+        }, this.PONG_TIMEOUT_DURATION); // Wait 5 seconds for pong
+    }
+
+    // Method to send commands to daemon (if needed)
+    sendCommand(command, data = {}) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            const message = {
+                type: 'command',
+                command: command,
+                ...data,
+                timestamp: Date.now()
+            };
+            this.ws.send(JSON.stringify(message));
+            console.log('📤 Sent command to daemon:', message);
+        } else {
+            console.error('❌ WebSocket not connected, cannot send command');
+        }
+    }
+}
+
+// Initialize when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    window.backupStatusClient = new BackupStatusClient();
+    window.backupStatusClient.startHeartbeat();
+});
+
+// =============================================
+// EXTENSION MANAGER
+// ============================================
+/**
+ * Determines the icon and color class based on the file extension.
+ * @param {string} filename The name of the file.
+ * @returns {object} An object containing the iconClass and iconColor.
+ */
+function getFileIconDetails(filename) {
+    if (typeof filename !== 'string' || !filename) {
+        return { iconClass: 'fas fa-file', iconColor: 'text-gray-500', thumbnail: null };
+    }
+    const ext = filename.split('.').pop().toLowerCase();
+    let iconClass = 'fas fa-file';
+    let iconColor = 'text-gray-500'; // Default grey color
+    let thumbnail = null;
+
+    if (ext === 'txt') {
+        iconClass = 'fas fa-file-alt';
+        iconColor = 'text-green-500';
+    } else if (ext === 'blend') {
+        iconClass = 'fas fa-cube';
+        iconColor = 'text-orange-500';
+    }
+    else if (['md', 'txt', 'log', 'ini', 'config', 'cfg', 'conf', 'sh', 'py', 'js', 'html', 'css'].includes(ext)) {
+        iconClass = 'fas fa-file-code';
+        iconColor = 'text-indigo-500';
+    } else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp'].includes(ext)) {
+
+        iconClass = 'fas fa-image';
+        iconColor = 'text-purple-500';
+        thumbnail = `/static/data/images/${ext}.png`; // Example thumbnail path
+    } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
+        iconClass = 'fas fa-file-archive';
+        iconColor = 'text-blue-500';
+    } else if (['mp4', 'avi', 'mov', 'mkv'].includes(ext)) {
+        iconClass = 'fas fa-file-video';
+        iconColor = 'text-red-500';
+    }  else if (['mp3', 'wav', 'flac', 'aac'].includes(ext)) {
+        iconClass = 'fas fa-file-audio';
+        iconColor = 'text-blue-500';
+    }
+    else if (['usb', 'vnmw', 'sd', 'mmc', 'sd-card', 'hd', 'memory', 'ext4'].includes(ext)) {
+        iconClass = 'fa-solid fa-hard-drive';
+        iconColor = 'text-green-500';
+    }
+    return { iconClass, iconColor, thumbnail };
+}
+
 
 // =============================================
 // DIFF MANAGER
@@ -220,19 +448,22 @@ const DiffManager = {
                     id: 1,
                     date: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 16, 30),
                     content: baseContent.replace('"1.0"', '"1.2"').replace('debug: true', 'debug: false') + '\n// Added new feature\n',
-                    changes: 3
+                    changes: 3,
+                    sizeInBytes: 1160713 // <- ADD THIS
                 },
                 {
                     id: 2,
                     date: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 15),
                     content: baseContent.replace('"1.0"', '"1.1"') + '\n// Minor update\n',
-                    changes: 2
+                    changes: 2,
+                    sizeInBytes: 1160713 // <- ADD THIS
                 },
                 {
                     id: 3,
                     date: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 10, 0),
                     content: baseContent,
-                    changes: 0
+                    changes: 0,
+                    sizeInBytes: 1160713 // <- ADD THIS
                 }
             ];
 
@@ -246,10 +477,78 @@ const DiffManager = {
         if (this.versions.length === 0) return;
 
         this.currentVersionIndex = 0;
+        this.getFileBackupVersions();
         this.showVersion(this.currentVersionIndex);
 
         document.getElementById('currentFileName').textContent = this.currentFile.name;
         document.getElementById('versionInfo').textContent = `Showing version 1 of ${this.versions.length}`;
+    },
+
+    // Renders all the version pills in the container
+    getFileBackupVersions: function() {
+        const container = document.getElementById('version-pills-container');
+        if (!container) return; 
+        container.innerHTML = ''; 
+
+        this.versions.forEach((version, index) => {
+            const isActive = index === 0;
+            const pill = document.createElement('div');
+            
+            // Set initial styling for the first pill
+            pill.className = `version-pill text-xs font-medium px-3 py-1 rounded-full cursor-pointer transition-colors duration-200 ${isActive ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`;
+            
+            // Format the date for the pill display
+            pill.textContent = version.date.toLocaleString(undefined, { 
+                month: 'short', 
+                day: 'numeric', 
+                hour: '2-digit', 
+                minute: '2-digit' 
+            });
+            pill.setAttribute('data-index', index);
+
+            // Add click listener to select version and update details
+            pill.addEventListener('click', () => {
+                this.showVersion(index); // This triggers the diff view update
+                
+                // Manually update the active state for the pills
+                document.querySelectorAll('.version-pill').forEach(p => {
+                    p.classList.replace('bg-indigo-600', 'bg-gray-100');
+                    p.classList.replace('text-white', 'text-gray-700');
+                });
+                pill.classList.add('bg-indigo-600', 'text-white');
+                
+                this.updateFileVersionDetails(version); // Update the size on click
+            });
+            container.appendChild(pill);
+        });
+
+        if (this.versions.length > 0) {
+            const mainVersion = this.versions[0];
+            
+            // 1. Visually select the first pill (if not already done)
+            document.querySelector('.version-pill[data-index="0"]').classList.add('bg-indigo-600', 'text-white');
+
+            // 2. The first version is used for BOTH sides initially (or you might have a dedicated 'Current File' object).
+            // Assuming the first version in the list (index 0) is the baseline/main file.
+            this.updateDiffViewDetails(mainVersion, mainVersion);
+        }
+    },
+
+    // Updates the human-readable details, including the size
+    updateFileVersionDetails: function(version) {
+        // Update the 'Modified' date in the details section (optional, but good practice)
+        const dateElement = document.getElementById('versionModified');
+        if (dateElement) {
+             dateElement.textContent = version.date.toLocaleString('en-US', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false 
+            });
+        }
     },
 
     showVersion: function(versionIndex) {
@@ -267,14 +566,25 @@ const DiffManager = {
         });
         
         document.getElementById('versionDate').textContent = dateStr;
-        document.getElementById('versionStats').textContent = `${version.changes} changes`;
+        
+        // Use the new reusable function to update all version details (including size)
+        this.updateFileVersionDetails(version);
 
+        // Update the visual selection of the pills
+        document.querySelectorAll('.version-pill').forEach(p => {
+             const index = parseInt(p.getAttribute('data-index'));
+             p.classList.toggle('bg-indigo-600', index === versionIndex);
+             p.classList.toggle('text-white', index === versionIndex);
+             p.classList.toggle('bg-gray-100', index !== versionIndex);
+             p.classList.toggle('text-gray-700', index !== versionIndex);
+        });
+        
         this.performDiff(this.currentFile.currentContent, version.content);
     },
 
     showLoadingState: function() {
-        document.getElementById('currentFileContent').textContent = 'Loading current file...';
-        document.getElementById('backupFileContent').textContent = 'Loading backup file...';
+        currentFileContentElement.textContent = 'Loading current file...';
+        backupFileContentElement.textContent = 'Loading backup file...';
         document.getElementById('versionDate').textContent = 'Loading versions...';
         document.getElementById('versionStats').textContent = '';
     },
@@ -349,8 +659,8 @@ const DiffManager = {
             }
         });
 
-        document.getElementById('currentFileContent').innerHTML = currentHtml;
-        document.getElementById('backupFileContent').innerHTML = backupHtml;
+        currentFileContentElement.innerHTML = currentHtml;
+        backupFileContentElement.innerHTML = backupHtml;
         document.querySelectorAll('.diff-line-number-column').forEach(el => {
             el.innerHTML = lineNumbersHtml;
         });
@@ -397,7 +707,6 @@ const BackupManager = {
         fetch('/api/backup/usage')
             .then(response => response.json())
             .then(data => {
-
                 if (data.success) {
                     BackupManager.updateUI(data);
                 } else {
@@ -420,10 +729,10 @@ const BackupManager = {
                     elements.backupProgress.className = 'h-2 rounded-full bg-yellow-500';
                     
                     // Only show alert for first occurrence
-                    if (!AppState.backup.errorShown) {
-                        alert(`Setup Required:\n\n${data.error}`);        
-                        AppState.backup.errorShown = true;
-                    }
+                    // if (!AppState.backup.errorShown) {
+                    //     alert(`Setup Required:\n\n${data.error}`);        
+                    //     AppState.backup.errorShown = true;
+                    // }
                 }
             })
             .catch(error => {
@@ -434,34 +743,44 @@ const BackupManager = {
     },
 
     updateUI: (data) => {
-      if (data.success) {
+        if (data.success) {
             const displayLocation = data.location.replace(/\\/g, '/').replace(/\/$/, '');
-            elements.backupLocation.textContent = displayLocation;
-            sourceLocation.textContent = data.users_home_path;  // Users $USER
+            const pathParts = displayLocation.split('/').filter(part => part.trim() !== '');
+            const displayName = pathParts.length > 0 ? pathParts[pathParts.length - 1] : displayLocation;
 
-            // User's home(Hdd/Ssd) usage
-            homeUsage.textContent = `${data.home_human_used} used of ${data.home_human_total} (${data.home_percent_used}% used)`;
-            // homeUsage.className = 'h-2 rounded-full';
-            // homeUsage.classList.add(Utils.getUsageColorClass(data.home_percent_used));
- 
-            // Backup device info "Right Side"
-            deviceMountPoint.textContent = displayLocation;
-            this.backupProgress.style.width = `${data.percent_used}%`;
-            this.backupUsage.textContent = 
+            elements.backupLocation.textContent = displayLocation;
+            elements.sourceLocation.textContent = data.users_home_path;
+
+            // User's home usage (Right Side)
+            elements.homeUsage.textContent = `${data.home_human_used} used of ${data.home_human_total} (${data.home_percent_used}% used)`;
+
+            // Backup device info (Center Position)
+            elements.devicesName.textContent = data.device_name || displayName; // Use device_name if available
+            elements.deviceMountPoint.textContent = displayLocation;
+            elements.backupProgress.style.width = `${data.percent_used}%`;
+            elements.backupUsage.textContent = 
                 `${data.human_used} used of ${data.human_total} (${data.percent_used}% used)`;
- 
+
             // Source device info "Left Side" HOME
-            this.deviceUsed.textContent = `${data.human_used} `;
-            this.deviceFree.textContent = `${data.human_free}`;
-            this.deviceTotal.textContent = `${data.human_total}`;
+            elements.deviceUsed.textContent = `${data.human_used} `;
+            elements.deviceFree.textContent = `${data.human_free}`;
+            elements.deviceTotal.textContent = `${data.human_total}`;
 
             elements.backupProgress.className = 'h-2 rounded-full';
             elements.backupProgress.classList.add(Utils.getUsageColorClass(data.percent_used));
             
             // Update the UI with the devices used space
-            devicesUsageBar.style.width = `${data.percent_used}%`;  // Used space bar
-            devicesUsageBar.className = 'h-2 rounded-full';  // Reset class
-            devicesUsageBar.classList.add(Utils.getUsageColorClass(data.percent_used));  // Determines color
+            elements.devicesUsageBar.style.width = `${data.percent_used}%`;
+            elements.devicesUsageBar.className = 'h-2 rounded-full';
+            elements.devicesUsageBar.classList.add(Utils.getUsageColorClass(data.percent_used));
+            
+            // Update device details in the UI
+            if (data.filesystem) {
+                elements.devicesFilesystem.textContent = data.filesystem;
+            }
+            if (data.model) {
+                elements.devicesModel.textContent = data.model;
+            }
             
             // Update image count from summary if available
             if (data.summary && data.summary.categories) {
@@ -470,25 +789,26 @@ const BackupManager = {
                 const videosCategory = data.summary.categories.find(cat => cat.name === "Video");
                 const otherCategory = data.summary.categories.find(cat => cat.name === "Others");
                 
-                // Debug
-                console.log(elements.imagesCount.textContent);
-            
                 // Images
-                if (imagesCategory)
-                    imagesCount.textContent = `${imagesCategory.count.toLocaleString()} files`;
-                    imagesSize.textContent = `${imagesCategory.size_str}`;
+                if (imagesCategory) {
+                    elements.imagesCount.textContent = `${imagesCategory.count.toLocaleString()} files`;
+                    elements.imagesSize.textContent = `${imagesCategory.size_str}`;
+                }
                 // Documents
-                if (documentsCategory)
-                    documentsCount.textContent = `${documentsCategory.count.toLocaleString()} files`;
-                    documentsSize.textContent = `${documentsCategory.size_str}`;
+                if (documentsCategory) {
+                    elements.documentsCount.textContent = `${documentsCategory.count.toLocaleString()} files`;
+                    elements.documentsSize.textContent = `${documentsCategory.size_str}`;
+                }
                 // Videos                   
-                if (videosCategory)
-                    videosCount.textContent = `${videosCategory.count.toLocaleString()} files`;
-                    videosSize.textContent = `${videosCategory.size_str}`;
+                if (videosCategory) {
+                    elements.videosCount.textContent = `${videosCategory.count.toLocaleString()} files`;
+                    elements.videosSize.textContent = `${videosCategory.size_str}`;
+                }
                 // Other files
-                if (otherCategory)
-                    otherCount.textContent = `${otherCategory.count.toLocaleString()} files`;
-                    otherSize.textContent = `${otherCategory.size_str.toLocaleString()} files`;
+                if (otherCategory) {
+                    elements.otherCount.textContent = `${otherCategory.count.toLocaleString()} files`;
+                    elements.otherSize.textContent = `${otherCategory.size_str}`;
+                }
             }
         } else {
             elements.backupLocation.textContent = "Error";
@@ -800,18 +1120,18 @@ const DeviceManager = {
         }, 2000);
     },
 
-    loadCurrent: () => {
-        fetch('/api/backup/current-device')
-            .then(Utils.handleResponse)
-            .then(data => {
-                if (typeof data === 'object' && data && data.success && data.device_path) {
-                    const currentDeviceCard = document.querySelector(
-                        `.device-card[data-device-path="${data.device_path}"]`
-                    );
-                    if (currentDeviceCard) currentDeviceCard.click();
-                }
-            });
-    }
+    // loadCurrent: () => {
+    //     fetch('/api/backup/current-device')
+    //         .then(Utils.handleResponse)
+    //         .then(data => {
+    //             if (typeof data === 'object' && data && data.success && data.device_path) {
+    //                 const currentDeviceCard = document.querySelector(
+    //                     `.device-card[data-device-path="${data.device_path}"]`
+    //                 );
+    //                 if (currentDeviceCard) currentDeviceCard.click();
+    //             }
+    //         });
+    // }
 };
 
 // =============================================
@@ -880,20 +1200,9 @@ const UIControls = {
         // document.getElementById('pauseBackupBtn2').addEventListener('click', BackupManager.toggle);  // TO DELETE
         // document.getElementById('stopBackupBtn').addEventListener('click', BackupManager.stop);  // TO DELETE
         
-        // Search functionality
-        // Elements.searchInput.addEventListener('input', (event) => {
-        //     clearTimeout(searchTimeout); // Clear previous timeout
-        //     const query = event.target.value;
-        //     searchTimeout = setTimeout(() => {
-        //         performSearch(query);
-        //     }, SEARCH_DEBOUNCE_DELAY);
-        // });
+
         // Device management
         document.getElementById('refreshDevicesBtn').addEventListener('click', DeviceManager.load);
-        document.getElementById('confirmSelectionBtn').addEventListener('click', DeviceManager.confirmSelection);
-        // document.getElementById('newFolderBtn').addEventListener('click', () => {
-        //     alert('This would open a dialog to add a new folder to watch in a real application.');
-        // });
         
         // Section-specific handlers
         document.querySelector('[data-section="devices"]').addEventListener('click', DeviceManager.load);
@@ -941,7 +1250,11 @@ const FolderManager = {
                 const tableBody = document.getElementById('watchedFoldersTable');
                 tableBody.innerHTML = '';
                 
-                if (data.length === 0) {
+                // Convert response to array if it's an object with folders property
+                const folders = Array.isArray(data) ? data : (data.folders || []);
+                
+                // Now safely use forEach
+                if (folders.length === 0) {
                     tableBody.innerHTML = `
                         <tr>
                             <td colspan="5" class="px-6 py-4 text-center text-gray-500">
@@ -951,8 +1264,8 @@ const FolderManager = {
                     `;
                     return;
                 }
-                
-                data.forEach(folder => {
+
+                folders.forEach(folder => {
                     const row = document.createElement('tr');
                     const excludedCount = folder.excluded_subfolders.length;
                     const lastActivity = new Date(folder.last_activity);
@@ -981,17 +1294,21 @@ const FolderManager = {
                                 <button onclick="FolderManager.showExclusions(${JSON.stringify(folder.excluded_subfolders)})" 
                                         class="text-indigo-600 hover:text-indigo-900 mr-3"
                                         title="Show excluded items">
+                                    ${''/*
                                     <i class="fas fa-info-circle"></i>
+                                    */}
                                 </button>
                             ` : ''}
                             <button onclick="FolderManager.folderInclusionExclusion('${folder.path}', ${!folder.is_excluded})"
                                     class="${folder.is_excluded ? 'text-green-600 hover:text-green-900' : 'text-yellow-600 hover:text-yellow-900'} mr-3"
-                                    title="${folder.is_excluded ? 'Include in backup' : 'Exclude from backup'}">
+                                    title="${folder.is_excluded ? 'Add it to be back up' : 'Remove it from br back up'}">
                                 <i class="fas ${folder.is_excluded ? 'fa-plus-circle' : 'fa-minus-circle'}"></i>
                             </button>
+                            ${''/*
                             <button onclick="FolderManager.showAddExclusion('${folder.path}')" class="text-gray-600 hover:text-gray-900" title="Add specific exclusions">
                                 <i class="fas fa-ellipsis-h"></i>
                             </button>
+                            */}
                         </td>
                     `;
                     tableBody.appendChild(row);
@@ -1161,184 +1478,258 @@ const FolderManager = {
     }    
 };
 
+
 // =============================================
-// ACTIVITY MANAGER
+// ACTIVITY MANAGER FOR DAEMON MESSAGES
 // =============================================
 const ActivityManager = {
     activities: [],
     intervals: {},
+    currentActivities: new Map(),
+    messageCount: 0,
     
     init: function() {
-        // The simulated activities are commented out to allow for real data from the backend.
-        // this.simulateFileAnalysis();
-        // this.simulateBackupProgress();
-        
-        // Load recent activities from server
-        this.loadRecentActivities();
+        this.clearAllIntervals();
+        this.setupAutoCleanup();
     },
     
-    simulateFileAnalysis: function() {
-        const files = [
-            "Documents/Work/",
-            "Pictures/Vacation/",
-            "Projects/ClientA/",
-            "Downloads/",
-            "Music/Collection/"
-        ];
-        let currentFile = 0;
-        let progress = 0;
-        
-        this.intervals.analysis = setInterval(() => {
-            progress += Math.random() * 10;
-            if (progress > 100) {
-                progress = 0;
-                currentFile = (currentFile + 1) % files.length;
-            }
-            
-            document.getElementById('analyzingStatus').textContent = `Scanning ${files[currentFile]}...`;
-            document.getElementById('analyzingProgress').style.width = `${progress}%`;
-            document.getElementById('analyzingCount').textContent = 
-                `${Math.floor(progress * 3.2)} files processed`;
-                
-            // Add to activity log when folder completes
-            if (progress === 0 && currentFile > 0) {
-                this.addActivity({
-                    icon: 'search',
-                    color: 'blue',
-                    title: 'Analysis complete',
-                    message: `Finished scanning ${files[currentFile-1]}`,
-                    timestamp: new Date()
-                });
-            }
-        }, 800);
+    clearAllIntervals: function() {
+        Object.values(this.intervals).forEach(interval => {
+            if (interval) clearInterval(interval);
+        });
+        this.intervals = {};
     },
-    
-    simulateBackupProgress: function() {
-        const files = [
-            "Documents/ProjectX/budget.xlsx",
-            "Pictures/Vacation2023/beach.jpg",
-            "Videos/tutorial.mp4",
-            "Projects/NewClient/proposal.docx",
-            "Music/NewAlbum/song1.mp3"
-        ];
-        let currentFile = 0;
-        let progress = 45;
-        
-        this.intervals.backup = setInterval(() => {
-            progress += Math.random() * 5;
-            if (progress > 100) {
-                progress = 0;
-                currentFile = (currentFile + 1) % files.length;
-                
-                // Add completed backup to activity log
-                this.addActivity({
-                    icon: 'copy',
-                    color: 'indigo',
-                    title: 'File backed up',
-                    message: files[currentFile === 0 ? files.length-1 : currentFile-1],
-                    timestamp: new Date()
-                });
-            }
-            
-            document.getElementById('currentBackupFile').textContent = files[currentFile];
-            document.getElementById('backupProgressBar').style.width = `${progress}%`;
-            document.getElementById('backupStatus').textContent = `${Math.min(100, Math.floor(progress))}% completed`;
-            document.getElementById('backupETA').textContent = `ETA: ${Math.floor((100 - progress) / 5)} min`;
-        }, 1200);
+
+    setupAutoCleanup: function() {
+        // Clean up old activities every hour
+        this.intervals.cleanup = setInterval(() => {
+            this.cleanupOldActivities();
+        }, 3600000); // 1 hour
     },
-    
-    loadRecentActivities: function() {
-        // Simulate loading from server
-        setTimeout(() => {
-            const sampleActivities = [
-                {
-                    icon: 'check-circle',
-                    color: 'green',
-                    title: 'Backup completed',
-                    message: 'Pictures/Vacation2023 folder',
-                    timestamp: new Date(Date.now() - 120000)
-                },
-                {
-                    icon: 'exclamation-triangle',
-                    color: 'yellow',
-                    title: 'Warning',
-                    message: 'Large file detected: Videos/tutorial.mp4 (2.4GB)',
-                    timestamp: new Date(Date.now() - 300000)
-                },
-                {
-                    icon: 'folder-plus',
-                    color: 'purple',
-                    title: 'New folder added',
-                    message: 'Projects/NewClient',
-                    timestamp: new Date(Date.now() - 600000)
-                }
-            ];
-            
-            sampleActivities.forEach(activity => {
-                this.addActivity(activity, false); // Add to beginning
-            });
-        }, 1500);
-    },
-    
-    addActivity: function(activity, prepend = true) {
-        const activityElement = this.createActivityElement(activity);
-        const container = document.getElementById('activityFeed');
+
+    cleanupOldActivities: function() {
+        const now = new Date();
+        const oneDayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
         
-        if (prepend) {
-            // Add new activity to top
-            container.insertBefore(activityElement, container.firstChild);
-            
-            // Limit to 20 activities
-            if (container.children.length > 20) {
-                container.removeChild(container.lastChild);
-            }
+        // Remove activities older than 24 hours
+        this.activities = this.activities.filter(activity => 
+            new Date(activity.timestamp) > oneDayAgo
+        );
+        
+        this.renderActivities();
+    },
+
+    // Analyzing Activities
+    updateAnalyzingActivity(message) {
+        let analyzingItem = document.querySelector('.activity-item[data-type="analyzing"]');
+        
+        if (!analyzingItem) {
+            analyzingItem = this.createElementFromHTML(this.createAnalyzingHTML(message));
+            document.getElementById('activityFeed').prepend(analyzingItem);
         } else {
-            // Add to bottom (for initial load)
-            container.appendChild(activityElement);
+            analyzingItem.querySelector('.analyzing-description').textContent = message.description;
+            analyzingItem.querySelector('.analyzing-progress').style.width = message.progress + '%';
+            analyzingItem.querySelector('.analyzing-count').textContent = message.processed + ' files processed';
         }
-        
-        this.activities.push(activity);
-    },
-
-    updateAnalysisStatus: function(data) {
-        const analyzingStatus = document.getElementById('analyzingStatus');
-        const analyzingProgress = document.getElementById('analyzingProgress');
-        const analyzingCount = document.getElementById('analyzingCount');
-
-        if (analyzingStatus) analyzingStatus.textContent = data.status_text;
-        if (analyzingProgress) analyzingProgress.style.width = `${data.progress_percent}%`;
-        if (analyzingCount) analyzingCount.textContent = data.count_text;
     },
     
-    createActivityElement: function(activity) {
-        const element = document.createElement('div');
-        element.className = 'flex items-start activity-item';
+    // Progress Activities
+    updateBackupProgress(message) {
+        let progressItem = document.querySelector('.activity-item[data-type="progress"]');
         
-        const timeAgo = this.formatTimeAgo(activity.timestamp);
-        
-        element.innerHTML = `
-            <div class="bg-${activity.color}-100 text-${activity.color}-600 p-2 rounded-full mr-3">
-                <i class="fas fa-${activity.icon} text-sm"></i>
-            </div>
-            <div class="flex-1">
-                <div class="text-sm font-medium">${activity.title}</div>
-                <div class="text-xs text-gray-500 mt-1">${activity.message}</div>
-                <div class="text-xs text-gray-400 mt-1">${timeAgo}</div>
+        if (!progressItem) {
+            progressItem = this.createElementFromHTML(this.createProgressHTML(message));
+            document.getElementById('activityFeed').prepend(progressItem);
+        } else {
+            progressItem.querySelector('.progress-description').textContent = message.description;
+            progressItem.querySelector('.progress-bar').style.width = message.progress + '%';
+            progressItem.querySelector('.progress-status').textContent = message.progress + '% completed';
+            progressItem.querySelector('.progress-eta').textContent = message.eta;
+        }
+    },
+
+    // Completion activity
+    addCompletedActivity(message) {
+        const item = this.createElementFromHTML(this.createCompletedHTML(message));
+        document.getElementById('activityFeed').prepend(item);
+        this.limitActivityFeed();  // Limit number of activities
+    },
+
+    // Warning activity
+    addWarningActivity(message) {
+        const item = this.createElementFromHTML(this.createWarningHTML(message));
+        document.getElementById('activityFeed').prepend(item);
+        this.limitActivityFeed();  // Limit number of activities
+    },
+
+    // New folder activity
+    addNewFolderActivity(message) {
+        const item = this.createElementFromHTML(this.createNewFolderHTML(message));
+        document.getElementById('activityFeed').prepend(item);
+        this.limitActivityFeed();  // Limit number of activities
+    },
+
+    // Render all activities
+    createElementFromHTML(htmlString) {
+        const div = document.createElement('div');
+        div.innerHTML = htmlString.trim();
+        return div.firstChild;
+    },
+
+    // Create analyzing html
+    createAnalyzingHTML(message) {
+        const timeAgo = this.formatTimeAgo(message.timestamp);
+        return `
+            <div class="flex items-start activity-item" data-type="analyzing">
+                <div class="bg-blue-100 text-blue-600 p-2 rounded-full mr-3">
+                    <i class="fas fa-search text-sm"></i>
+                </div>
+                <div class="flex-1">
+                    <div class="text-sm font-medium">${message.title}</div>
+                    <div class="text-xs text-gray-500 mt-1 analyzing-description">${message.description}</div>
+                    <div class="w-full bg-gray-200 rounded-full h-1 mt-2">
+                        <div class="bg-blue-500 h-1 rounded-full analyzing-progress" style="width: ${message.progress}%"></div>
+                    </div>
+                    <div class="text-xs text-gray-400 mt-1 analyzing-count">${message.processed} files processed</div>
+                </div>
             </div>
         `;
-        
-        return element;
+    },
+
+    // Create progress html
+    createProgressHTML(message) {
+        const timeAgo = this.formatTimeAgo(message.timestamp);
+        return `
+            <div class="flex items-start activity-item" data-type="progress">
+                <div class="bg-indigo-100 text-indigo-600 p-2 rounded-full mr-3">
+                    <i class="fas fa-copy text-sm"></i>
+                </div>
+                <div class="flex-1">
+                    <div class="text-sm font-medium">${message.title}</div>
+                    <div class="text-xs text-gray-500 mt-1 truncate progress-description">${message.description}</div>
+                    <div class="w-full bg-gray-200 rounded-full h-1 mt-2">
+                        <div class="bg-indigo-500 h-1 rounded-full progress-bar" style="width: ${message.progress}%"></div>
+                    </div>
+                    <div class="flex justify-between text-xs text-gray-400 mt-1">
+                        <span class="progress-status">${message.progress}% completed</span>
+                        <span class="progress-eta">${message.eta}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    // Create completed html
+    createCompletedHTML(message) {
+        const timeAgo = this.formatTimeAgo(message.timestamp);
+        return `
+            <div class="flex items-start activity-item">
+                <div class="bg-green-100 text-green-600 p-2 rounded-full mr-3">
+                    <i class="fas fa-check-circle text-sm"></i>
+                </div>
+                <div class="flex-1">
+                    <div class="text-sm font-medium">${message.title}</div>
+                    <div class="text-xs text-gray-500 mt-1">${message.description}</div>
+                    <div class="text-xs text-gray-400 mt-1">${timeAgo}</div>
+                </div>
+            </div>
+        `;
+    },
+
+    // Create warning html
+    createWarningHTML(message) {
+        const timeAgo = this.formatTimeAgo(message.timestamp);
+        return `
+            <div class="flex items-start activity-item">
+                <div class="bg-yellow-100 text-yellow-600 p-2 rounded-full mr-3">
+                    <i class="fas fa-exclamation-triangle text-sm"></i>
+                </div>
+                <div class="flex-1">
+                    <div class="text-sm font-medium">${message.title}</div>
+                    <div class="text-xs text-gray-500 mt-1">${message.description}</div>
+                    <div class="text-xs text-gray-400 mt-1">${timeAgo}</div>
+                </div>
+            </div>
+        `;
+    },
+
+    // Create new folder html
+    createNewFolderHTML(message) {
+        const timeAgo = this.formatTimeAgo(message.timestamp);
+        return `
+            <div class="flex items-start activity-item">
+                <div class="bg-purple-100 text-purple-600 p-2 rounded-full mr-3">
+                    <i class="fas fa-folder-plus text-sm"></i>
+                </div>
+                <div class="flex-1">
+                    <div class="text-sm font-medium">${message.title}</div>
+                    <div class="text-xs text-gray-500 mt-1">${message.description}</div>
+                    <div class="text-xs text-gray-400 mt-1">${timeAgo}</div>
+                </div>
+            </div>
+        `;
+    },
+
+    // Format time ago
+    formatTimeAgo(timestamp) {
+        const now = new Date();
+        const messageTime = new Date(timestamp);
+        const diffMs = now - messageTime;
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+        if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+        return `${Math.floor(diffHours / 24)} day${Math.floor(diffHours / 24) > 1 ? 's' : ''} ago`;
+    },
+
+    // Update connection status
+    updateConnectionStatus(connected) {
+        const statusElement = document.getElementById('connectionStatus');
+        if (connected) {
+            statusElement.innerHTML = '<span class="text-green-300 mr-2">●</span><span>Connected</span>';
+        } else {
+            statusElement.innerHTML = '<span class="text-red-300 mr-2">●</span><span>Disconnected</span>';
+        }
+    },
+
+    // Update last update
+    updateLastUpdate() {
+        document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+    },
+
+    // Limit number of notification under Recents Activities
+    limitActivityFeed: function() {
+        const activityFeed = document.getElementById('activityFeed');
+        if (!activityFeed) return;
+
+        // The last child is the OLDEST log entry because we use prepend()
+        while (activityFeed.children.length > MAX_LOG_ITEMS) {
+            activityFeed.removeChild(activityFeed.lastChild);
+        }
     },
     
-    formatTimeAgo: function(date) {
-        const seconds = Math.floor((new Date() - date) / 1000);
-        
-        if (seconds < 60) return 'Just now';
-        if (seconds < 3600) return `${Math.floor(seconds/60)} minutes ago`;
-        if (seconds < 86400) return `${Math.floor(seconds/3600)} hours ago`;
-        return `${Math.floor(seconds/86400)} days ago`;
+    clearAnalyzingActivity: function() {
+        const analyzingItem = document.querySelector('.activity-item[data-type="analyzing"]');
+        if (analyzingItem) {
+            analyzingItem.remove();
+        }
+    },
+    
+    clearProgressActivity: function() {
+        const progressItem = document.querySelector('.activity-item[data-type="progress"]');
+        if (progressItem) {
+            progressItem.remove();
+        }
+    },
+    
+    clearAllActiveActivities: function() {
+        this.clearAnalyzingActivity();
+        this.clearProgressActivity();
     }
 };
+
 
 // =============================================
 // PRO ACCESS
@@ -1394,12 +1785,121 @@ const ProAccessManager = {
         });
     }};
 
+
+// =============================================
+// DEVICE SELECTION HANDLER
+// =============================================
+const DeviceSelection = {
+    // Stores the element reference for the currently highlighted device
+    _currentSelectedElement: null, 
+
+    init: () => {
+        // Listener for selecting a device from the list
+        elements.devicesContainer.addEventListener(
+            'click', DeviceSelection.handleDeviceClick);
+
+        // Listener for the confirmation button (the save action)
+        elements.confirmSelectionBtn.addEventListener(
+            'click', DeviceSelection.handleConfirmSelection);
+        
+        // Disable the button initially
+        DeviceSelection.toggleConfirmButton(false);
+    },
+
+    // Helper to control the button state and appearance
+    toggleConfirmButton: (enable) => {
+        elements.confirmSelectionBtn.disabled = !enable;
+        if (enable) {
+            elements.confirmSelectionBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        } else {
+            elements.confirmSelectionBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        }
+    },
+
+    // Handles the temporary selection of a device
+    handleDeviceClick: (event) => {
+        // Assuming your device list items have a class 'device-item' and a data-device-info attribute
+        const deviceItem = event.target.closest('.device-card'); 
+        if (!deviceItem) return;
+
+        // 1. Clear previous selection state (visual)
+        if (DeviceSelection._currentSelectedElement) {
+            DeviceSelection._currentSelectedElement.classList.remove('ring-2', 'ring-indigo-500', 'bg-indigo-50');
+        }
+
+        // 2. Highlight the newly selected device (visual)
+        deviceItem.classList.add('ring-2', 'ring-indigo-500', 'bg-indigo-50');
+        DeviceSelection._currentSelectedElement = deviceItem;
+
+        // 3. Store the device info in AppState (data)
+        try {
+            // Assuming the full device info is stored in a data attribute
+            const infoString = deviceItem.getAttribute('data-device-info');
+            const info = JSON.parse(infoString);
+            appState.selectedDevice = info; // Store the full device object
+            
+            // Update the temporary selection UI details
+            // (You might have other UI elements to update here)
+            elements.selectedDevicePath.textContent = info.mount_point;
+            
+            // 4. Enable the confirmation button
+            DeviceSelection.toggleConfirmButton(true);
+            
+        } catch (e) {
+            console.error("Error setting device info:", e);
+            appState.selectedDevice = null; // Clear state on error
+            DeviceSelection.toggleConfirmButton(false);
+        }
+    },
+
+    // Handles the final confirmation and sends data to the server
+    handleConfirmSelection: async () => {
+        const selectedDevice = appState.selectedDevice;
+        if (!selectedDevice) {
+            console.warn("No device selected to confirm.");
+            return;
+        }
+
+        // Prevent resubmission
+        DeviceSelection.toggleConfirmButton(false);
+        elements.confirmSelectionBtn.textContent = 'Saving...';
+        
+        try {
+            const response = await fetch('/api/backup/select-device', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // Use the temporarily stored object
+                body: JSON.stringify({ device_info: selectedDevice }) 
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                console.log('Device configured successfully:', result.path);
+                
+                // Chnage navigation view to Overview
+                Navigation.showSection('overview'); 
+                
+                // Clear the temporary state
+                appState.selectedDevice = null;
+            } else {
+                console.error('Failed to select device:', result.error);
+            }
+        } catch (e) {
+            console.error('Network error during device selection:', e);
+        } finally {
+            elements.confirmSelectionBtn.textContent = 'Confirm Selection';
+        }
+    }
+};
+
+
 // =============================================
 // FILE SECTION
 // =============================================
 // --- DOM Elements & State ---
-const currentContentElement = document.getElementById('currentFileContent');
-const backupContentElement = document.getElementById('backupFileContent');
+const currentFileContentElement = document.getElementById('currentFileContent');
+const backupFileContentElement = document.getElementById('backupFileContent');
 const currentHeaderSpan = document.getElementById('currentVersionTime');
 const backupHeaderSpan = document.getElementById('backupVersionTime');
 const versionPillsContainer = document.getElementById('version-pills-container');
@@ -1415,6 +1915,39 @@ const ctaButton = document.getElementById('ctaButton');
 // Global state to track currently selected file and version
 let currentFileKey = '';
 let currentBackupVersionKey = null; // Will be set to the latest non-current version
+
+/**
+ * Handles the click on the action menu items (restore, open, etc.).
+ * @param {string} action The action to perform ('restore', 'open', 'open-location').
+ * @param {string} versionKey The key of the version to act upon.
+ */
+function handleVersionAction(action, versionKey) {
+    let fileObj = null;
+    if (window.latestSearchResults) {
+        fileObj = window.latestSearchResults.find(f => f.name === currentFileKey);
+    }
+    if (!fileObj || !fileObj.versions) return;
+
+    const version = fileObj.versions[versionKey];
+    if (!version || !version.path) {
+        console.error(`Version or path not found for key: ${versionKey}`);
+        return;
+    }
+
+    const filePath = version.path;
+
+    switch (action) {
+        case 'restore':
+            restoreFile(filePath);
+            break;
+        case 'open':
+            openPathInExplorer(filePath); // Use openPathInExplorer for files too
+            break;
+        case 'open-location':
+            openPathInExplorer(filePath.substring(0, filePath.lastIndexOf('/')));
+            break;
+    }
+}
 
 
 /**
@@ -1442,8 +1975,8 @@ async function selectFile(fileName) {
     });
     fileObj.versions = versionsObj;
 
-    // Render version pills for this file
-    renderVersionPills(fileObj);
+    // Get backup versions for this file
+    getFileBackupVersions(fileObj);
 
     // Select the latest version by default (latest datetime)
     const versionsArr = Object.entries(fileObj.versions).map(([key, v]) => ({ key, ...v }));
@@ -1455,25 +1988,27 @@ async function selectFile(fileName) {
         return bTime - aTime;
     });
 
+    // Auto-select the latest backup version of this file
     if (versionsArr.length > 0) {
-        switchVersion(versionsArr[0].key); // Select the latest version by datetime
+        autoSelectLatestBackupVersion(versionsArr[0].key); // Select the latest version by datetime
     }
     
+    // Frontend: Load current file content
     // Fetch file content from backend and display in currentFileContent
     fetch(`/api/file-content?file_path=${encodeURIComponent(filePath)}`)
         .then(response => response.json())
         .then(data => {
             if (data.success && data.content !== undefined) {
-                currentContentElement.textContent = data.content;
+                currentFileContentElement.textContent = data.content;
             } else if (data.metadata) {
-                currentContentElement.innerHTML = renderMetadataView(data.metadata);
+                currentFileContentElement.innerHTML = renderMetadataView(data.metadata);
             } else {
-                currentContentElement.textContent = 'Unable to load file content.';
+                currentFileContentElement.textContent = 'Unable to load file content.';
             }
         })
         .catch(error => {
             console.error('Error loading file content:', error);
-            currentContentElement.textContent = 'Error loading file content.';
+            currentFileContentElement.textContent = 'Error loading file content.';
         });
 }
 
@@ -1481,7 +2016,7 @@ async function selectFile(fileName) {
  * Renders the list of version pills for the selected file.
  * Each pill represents a backup/version (e.g., "Yesterday 11:00 AM (V1)").
  */
-function renderVersionPills(fileObj) {
+function getFileBackupVersions(fileObj) {
     versionPillsContainer.innerHTML = ''; // Clear previous pills
     if (!fileObj || !fileObj.versions) return;
 
@@ -1548,14 +2083,17 @@ function parseVersionTime(str) {
  */
 function renderMetadataView(metadata) {
     console.log('Rendering metadata view:', metadata);
+    const { iconClass, iconColor } = getFileIconDetails(metadata.path);
+
     return `
         <div class="p-6 h-full flex flex-col items-center justify-center text-center text-gray-600 bg-white rounded-xl">
-            <i class="fas fa-file-archive text-5xl text-indigo-400 mb-4"></i>
+            <i class="${iconClass} text-5xl ${iconColor} mb-4"></i>
             <p class="text-lg font-semibold mb-2">${metadata.name || currentFileKey}</p>
             <p class="text-sm">This is a binary file (e.g., .blend, .svg, .zip). Textual content comparison is not available.</p>
             <div class="mt-4 p-3 bg-gray-50 rounded-lg w-full max-w-sm">
-                <p class="text-xs font-medium text-gray-700">Modified: ${metadata.mtime || ''}</p>
-                <p class="text-xs font-medium text-gray-700">Size: ${metadata.size || ''}</p>
+                <p class="text-xs font-medium text-gray-700">Path: ${metadata.path || ''}</p>
+                <p class="text-xs font-medium text-gray-700">Modified: ${metadata.time || ''}</p>
+                <p class="text-xs font-medium text-gray-700">Size: ${Utils.formatBytes(metadata.size || 0)}</p>
                 ${metadata.type ? `<p class="text-xs mt-1 italic">Type: ${metadata.type}</p>` : ''}
                 ${metadata.metadata ? `<p class="text-xs mt-1 italic">${metadata.metadata}</p>` : ''}
             </div>
@@ -1563,12 +2101,18 @@ function renderMetadataView(metadata) {
     `;
 }
 
+// <p class="text-xs font-medium text-gray-700">Modified: ${metadata.mtime || ''}</p>
+// <p class="text-xs ffont-medium text-gray-700">Size: ${metadata.size || ''}</p>  
+// <p class="text-xs font-medium text-gray-700">Size: ${Utils.formatBytes(metadata.size || 0)}</p>
+// ${metadata.type ? `<p class="text-xs mt-1 italic">Type: ${metadata.type}</p>` : ''}
+// ${metadata.metadata ? `<p class="text-xs mt-1 italic">${metadata.metadata}</p>` : ''}
+
 /**
  * Switches the content displayed in the backup (right) pane for comparison.
  * The current (left) pane always shows the latest version of the selected file.
  * @param {string} versionKey - The version key (e.g., 'v2', 'v1').
  */
-function switchVersion(versionKey) {
+function autoSelectLatestBackupVersion(versionKey) {
     // Find the file object from latestSearchResults
     let fileObj = null;
     if (window.latestSearchResults) {
@@ -1578,8 +2122,8 @@ function switchVersion(versionKey) {
 
     // Determine latest (current) version key
     const latestVersionKey = Object.keys(fileObj.versions)[0];
-    const currentVersion = fileObj.versions[latestVersionKey];
-    const selectedVersion = fileObj.versions[versionKey];
+    const currentVersion = fileObj.versions[latestVersionKey];  // Will shows the user's current file content (From HOME)
+    const selectedVersion = fileObj.versions[versionKey];  // By default it will show the latest version first
 
     if (!selectedVersion) return;
 
@@ -1591,15 +2135,15 @@ function switchVersion(versionKey) {
 
     // 2. Handle Content Display (Diff or Metadata)
     if (fileObj.type === 'text') {
-        currentContentElement.innerHTML = styleDiffContent(currentVersion.content, false); 
-        backupContentElement.innerHTML = styleDiffContent(selectedVersion.content, true);
+        currentFileContentElement.innerHTML = styleDiffContent(currentVersion.content, false); 
+        backupFileContentElement.innerHTML = styleDiffContent(selectedVersion.content, true);
     } else {
-        const currentMetadata = renderMetadataView(currentVersion);
-        const backupMetadata = renderMetadataView(selectedVersion);
-
-        currentContentElement.innerHTML = currentMetadata;
-        backupContentElement.innerHTML = backupMetadata;
+        currentFileContentElement.innerHTML = renderMetadataView(currentVersion);  // This should actually show user's current file content (From HOME)
+        backupFileContentElement.innerHTML = renderMetadataView(selectedVersion);
     }
+
+    console.log('Current File Content:', currentFileContentElement);
+    console.log('Backup File Content:', backupFileContentElement);
 
     // 3. Update active pill CSS (Visual only)
     document.querySelectorAll('.version-pill').forEach(pill => {
@@ -1632,19 +2176,25 @@ function fetchFileVersions(filePath) {
 }
 
 
-
+// =============================================
+// PAGE LOADED
+// =============================================
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize main app
+    App.init();
+    
+    // Initialize ActivityManager
     ActivityManager.init();
-
-    // Search
-    const searchInput = document.getElementById('searchInput'); 
+    
+    // Initialize WebSocket client
+    window.backupStatusClient = new BackupStatusClient();
     
     // Create a debounced version of fetchAndRenderFiles
     // Adjust the delay (e.g., 500ms) as needed for your application's responsiveness
     const debouncedPerformSearch = debounce(performSearch, 500); 
 
-    if (searchInput) {
-        searchInput.addEventListener('input', (event) => {
+    if (this.searchInput) {
+        this.searchInput.addEventListener('input', (event) => {
             // Call the debounced function instead of the original directly
             debouncedPerformSearch(event.target.value);
             Navigation.showSection('files');
@@ -1666,7 +2216,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const pill = event.target.closest('.version-pill');
         if (pill) {
             const versionKey = pill.getAttribute('data-version');
-            switchVersion(versionKey); 
+            autoSelectLatestBackupVersion(versionKey); 
         }
     });
 
@@ -1675,22 +2225,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const actionButton = event.target.closest('.action-btn');
         if (actionButton && currentBackupVersionKey) {
             const action = actionButton.getAttribute('data-action');
-            if (action === 'open-location') {
-                // Get the selected version's path
-                let fileObj = null;
-                if (window.latestSearchResults) {
-                    fileObj = window.latestSearchResults.find(f => f.name === currentFileKey);
-                }
-                if (!fileObj || !fileObj.versions) return;
-                const selectedVersion = fileObj.versions[currentBackupVersionKey];
-                if (!selectedVersion || !selectedVersion.path) return;
-
-                // Open the folder containing the selected version
-                const folderPath = selectedVersion.path.substring(0, selectedVersion.path.lastIndexOf('/'));
-                openPathInExplorer(folderPath);
-            } else {
-                handleVersionAction(action, currentBackupVersionKey);
-            }
+            // All actions are now handled by the central function
+            handleVersionAction(action, currentBackupVersionKey);
         }
     });
 
@@ -1713,6 +2249,73 @@ document.addEventListener('DOMContentLoaded', () => {
     //     });
     // });
 });
+// Global WebSocket instance for other components to use
+let globalSocket = null;
+
+// Establish WebSocket connection
+function initializeWebSocket() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    
+    try {
+        globalSocket = new WebSocket(wsUrl);
+        
+        // Check connection to socket
+        // globalSocket.addEventListener('open', (event) => {
+        //     ActivityManager.addCompletedActivity({
+        //         icon: 'link',
+        //         color: 'green',
+        //         title: 'Connected',
+        //         description: 'Connected to backup daemon',
+        //         timestamp: new Date(),
+        //         persistent: true
+        //     });
+        // });
+
+        // Get ready to ge messages from daemon
+        globalSocket.addEventListener('message', (event) => {
+            UIMessageHandler.handleMessage(event.data);
+        });
+
+        // globalSocket.addEventListener('close', (event) => {
+        //     ActivityManager.addCompletedActivity({
+        //         icon: 'unlink',
+        //         color: 'red',
+        //         title: 'Disconnected',
+        //         description: 'Lost connection to backup daemon',
+        //         timestamp: new Date(),
+        //         persistent: true
+        //     });
+            
+        //     // Attempt reconnect after 5 seconds
+        //     setTimeout(initializeWebSocket, 5000);
+        // });
+
+        globalSocket.addEventListener('error', (error) => {
+            console.error('❌ Global WebSocket error:', error);
+        });
+        
+    } catch (error) {
+        console.error('❌ Failed to initialize WebSocket:', error);
+        // Retry after 10 seconds
+        setTimeout(initializeWebSocket, 10000);
+    }
+}
+
+// Start the global WebSocket connection
+// initializeWebSocket();
+
+// Clean up on page unload
+window.addEventListener('beforeunload', () => {
+    App.cleanup();
+    if (globalSocket) {
+        globalSocket.close();
+    }
+    if (window.backupStatusClient) {
+        window.backupStatusClient.stopHeartbeat();
+    }
+});
+
 
 // =============================================
 // SUGGESTED FILES
@@ -1746,9 +2349,9 @@ const SuggestedFiles = {
                             <button class="text-indigo-600 hover:text-indigo-800 text-sm font-medium" data-filepath="${item.original_path}">Search</button>
                         `;
 
-                       // Attach click event to the "View" button to add file path to search bar and automatically search for it
-                        const viewButton = fileItemDiv.querySelector('button');
-                        viewButton.addEventListener('click', (event) => {
+                       // Attach click event to the "Search" button to add file path to search bar and automatically search for it
+                        const searchButton = fileItemDiv.querySelector('button');
+                        searchButton.addEventListener('click', (event) => {
                             const fileName = item.basename;
                             // const filePath = event.target.getAttribute('data-filepath');
                             const searchInput = document.getElementById('searchInput');
@@ -1775,52 +2378,45 @@ const SuggestedFiles = {
 
     setup: () => {
         SuggestedFiles.load();
-        setInterval(SuggestedFiles.load, 10000);
+        setInterval(SuggestedFiles.load, 60000);  // Refresh every 1 minute
     }
 };
 
 // =============================================
-// UI MESSAGE HANDLER (for WebSocket/SSE)
+// UI MESSAGE HANDLER (UPDATED FOR DAEMON ACTIVITIES)
 // =============================================
 const UIMessageHandler = {
-    handleMessage: (msg) => {
+    handleMessage(data) {
         try {
-            const data = JSON.parse(msg);
-            switch (data.type) {
-                case 'analysis_progress':
-                    ActivityManager.updateAnalysisStatus(data);
+            const message = JSON.parse(data);
+
+            switch(message.type) {
+                case 'analyzing':
+                    ActivityManager.updateAnalyzingActivity(message);
                     break;
-                case 'new_activity':
-                    // The timestamp should ideally be an ISO string from the server.
-                    // new Date() is used here as a fallback.
-                    data.activity.timestamp = data.activity.timestamp ? new Date(data.activity.timestamp) : new Date();
-                    ActivityManager.addActivity(data.activity);
+                case 'progress':
+                    ActivityManager.updateBackupProgress(message);
                     break;
-                case 'transfer_progress':
-                     // TODO: Handle 'transfer_progress' if needed, e.g., update progress bars
+                case 'completed':
+                    // CLEAR ACTIVE STATES FIRST
+                    ActivityManager.clearAnalyzingActivity();
+                    ActivityManager.clearProgressActivity();
+                    ActivityManager.addCompletedActivity(message);
                     break;
-                case 'scan_complete': // --- NEW: Handle scan completion message ---
-                    if (data.status === 'success') {
-                        console.log("File scan complete! Search input enabled.");
-                        elements.searchInput.disabled = false; // Enable the search input
-                        elements.searchInput.placeholder = "Search files..."; // Optional: Update placeholder
-                    } 
-                    else if (data.status === 'scanning') {
-                        console.log("Caching files...");
-                        elements.searchInput.disabled = true;  // Disable the search input
-                        elements.searchInput.placeholder = "Caching files...";
-                    }
-                    else {
-                        elements.searchInput.placeholder = `Error loading files: ${data.message || 'Unknown error'}`;
-                        console.error("File scan failed:", data.message);
-                    }
+                case 'warning':
+                    ActivityManager.addWarningActivity(message);
+                    break;
+                case 'info':
+                    ActivityManager.addNewFolderActivity(message);
                     break;
             }
-        } catch (error) {
-            console.error("Failed to parse message from server:", error);
+        } catch (e) {
+            console.log(message);
+            console.error('❌ Error parsing WebSocket message:', e);
         }
     }
 };
+
 
 // =============================================
 // LOGS MANAGEMENT
@@ -1884,7 +2480,7 @@ const LogManager = {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'dataguardian_logs.txt';
+            a.download = 'timemachine_logs.txt';
             a.click();
             URL.revokeObjectURL(url);
         });
@@ -1940,8 +2536,6 @@ function performSearch(query) {
     fetch(`/api/search?query=${encodeURIComponent(query)}`)
         .then(response => response.json())
         .then(data => {
-            const fileListContainer = document.getElementById('file-list-container');
-
             if (!fileListContainer) {
                 console.error('Error: Element with ID "file-list-container" not found in web.html.');
                 return;
@@ -1956,39 +2550,17 @@ function performSearch(query) {
             // Track added files to prevent duplicates
             const addedFiles = new Set();
 
+            // Console log results for debugging
+            console.log('Search results received from API:', data.files);
+
             // Populate with new results
             if (data.files && data.files.length > 0) {
                 data.files.forEach(file => {
                     if (addedFiles.has(file.name)) return; // Skip if already added
                     addedFiles.add(file.name);
 
-                    // Determine icon and color based on file type/extension
-                    let iconClass = 'fas fa-file';
-                    let iconColor = 'text-gray-500';
-                    const ext = file.name.split('.').pop().toLowerCase();
-                    if (ext === 'txt') {
-                        iconClass = 'fas fa-file-alt';
-                        iconColor = 'text-green-500';
-                    } else if (ext === 'blend') {
-                        iconClass = 'fas fa-cube';
-                        iconColor = 'text-orange-500';
-                    }
-                    else if (['md', 'txt', 'log', 'ini', 'config', 'cfg', 'conf', 'sh', 'py', 'js', 'html', 'css'].includes(ext)) {
-                        iconClass = 'fas fa-file-code';
-                        iconColor = 'text-indigo-500';
-                    } else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp'].includes(ext)) {
-                        iconClass = 'fas fa-image';
-                        iconColor = 'text-purple-500';
-                    } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
-                        iconClass = 'fas fa-file-archive';
-                        iconColor = 'text-blue-500';
-                    } else if (['mp4', 'avi', 'mov', 'mkv'].includes(ext)) {
-                        iconClass = 'fas fa-file-video';
-                        iconColor = 'text-red-500';
-                    }  else if (['mp3', 'wav', 'flac', 'aac'].includes(ext)) {
-                        iconClass = 'fas fa-file-audio';
-                        iconColor = 'text-blue-500';
-                    } 
+                    // Get icon details based on file type/extension
+                    const { iconClass, iconColor } = getFileIconDetails(file.name);
 
                     // Count versions (default to 1 if not provided)
                     const versionCount = file.versions ? file.versions.length : (file.version_count || 1);
@@ -1997,7 +2569,7 @@ function performSearch(query) {
                     const isActive = data.files[0] && file.name === data.files[0].name ? 'active' : '';
 
                     const fileItemDiv = document.createElement('div');
-                    fileItemDiv.className = `file-item flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors border-l-4 border-transparent hover:border-indigo-500 ${isActive}`;
+                    fileItemDiv.className = `file-item flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors border-transparent hover:hover:border-indigo-500 ${isActive}`;
                     fileItemDiv.setAttribute('data-file', file.name);
                     fileItemDiv.setAttribute('data-filepath', file.path || file.name); // Store full path
 
@@ -2085,7 +2657,7 @@ function openFileInDefaultApp(filePath) {
  * Sends a request to the backend to open the specified path in the system's file explorer.
  * @param {string} path The file or directory path to open.
  */
-function openPathInExplorer(path, openFile) {
+function openPathInExplorer(path) {
     if (!path) {
         console.warn("No path provided to openPathInExplorer.");
         return;
@@ -2102,7 +2674,7 @@ function openPathInExplorer(path, openFile) {
     .then(Utils.handleResponse) // Re-use your existing response handler
     .then(data => {
         if (data && data.success) {
-            console.log(`Successfully requested to open path: ${path}`);
+            console.log(`Open file location: ${path}`);
             /*alert('Location opened successfully!');*/ // Simple alert for demonstration
         } else {
             const errorMsg = data ? data.error : 'Unknown error';
@@ -2225,55 +2797,32 @@ const App = {
         UIControls.setupToggles();
         DiffManager.setupModalControls();
         
-        // Initial data loading
+        // Initial data loading - now everything comes from one API call
         BackupManager.updateUsage();
         DeviceManager.load();
         LogManager.load();
-        FolderManager.loadWatchedFolders();  // Load folders immediately
-        ProAccessManager.showDialog(); // Show Pro access dialog if needed
-        SuggestedFiles.setup(); // Load sugested files
+        FolderManager.loadWatchedFolders();  
+        ProAccessManager.showDialog(); 
+        SuggestedFiles.setup(); 
         
-        // Set up intervals
-        // AppState.intervals.backup = setInterval(BackupManager.updateStatus, 1000);  // TO REMOVE
-        AppState.intervals.device = setInterval(DeviceManager.loadCurrent, 5000);  // Load current device every 5 seconds
-        AppState.intervals.storage = setInterval(BackupManager.updateUsage, 30000);  // Update storage usage every 30 seconds
+        // Interval to update UI
+        AppState.intervals.storage = setInterval(BackupManager.updateUsage, 2000);  // Update every 2 seconds
 
-        // Check if backup path is configured
-        fetch('/api/backup/check-config')
-            .then(response => response.json())
-            .then(data => {
-                if (data.is_configured) {
-                    console.log('Using configured path:', data.path);
-                    BackupManager.updateUsage();
-                    // Update the UI with the choose backup device's name
-                    devicesName.textContent = data.device_name || 'N/A';
-                    // Update the UI with the devices filesystem
-                    devicesFilesystem.textContent = data.filesystem || 'N/A';
-                    // Update the UI with the devices serial number
-                    devicesSerialNumber.textContent = data.serial_number || 'N/A';
-                    // Update the UI with the devices model
-                    devicesModel.textContent = data.model || 'N/A';
-                } else {
-                    console.log('No backup path configured');
-                    Navigation.showSection('devices');
-                }
-            });
         DiffManager.init();
+        DeviceSelection.init();
     },
 
-    cleanup: () => {
-        if (AppState && AppState.intervals) {
-            Object.values(AppState.intervals).forEach(interval => {
-                if (interval) clearInterval(interval);
-            });
-        }
-    },
-};
+        cleanup: () => {
+            if (AppState && AppState.intervals) {
+                Object.values(AppState.intervals).forEach(interval => {
+                    if (interval) clearInterval(interval);
+                });
+            }
+        },
+    };
 
 // Start the application when DOM is ready
 document.addEventListener('DOMContentLoaded', () => App.init());
-
-
 
 
 // Establish WebSocket connection

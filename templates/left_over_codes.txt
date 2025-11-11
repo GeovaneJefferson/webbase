@@ -1,0 +1,68 @@
+                <!-- Analyzing Files Activity -->
+                <div class="flex items-start activity-item">
+                    <div class="bg-blue-100 text-blue-600 p-2 rounded-full mr-3">
+                        <i class="fas fa-search text-sm"></i>
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium">Analyzing files</div>
+                        <div class="text-xs text-gray-500 mt-1" id="analyzingStatus">Scanning Documents folder...</div>
+                        <div class="w-full bg-gray-200 rounded-full h-1 mt-2">
+                            <div id="analyzingProgress" class="bg-blue-500 h-1 rounded-full" style="width: 30%"></div>
+                        </div>
+                        <div class="text-xs text-gray-400 mt-1" id="analyzingCount">32 files processed</div>
+                    </div>
+                </div>
+                
+                <!-- Current Backup Activity -->
+                <div class="flex items-start activity-item">
+                    <div class="bg-indigo-100 text-indigo-600 p-2 rounded-full mr-3">
+                        <i class="fas fa-copy text-sm"></i>
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium">Backup in progress</div>
+                        <div class="text-xs text-gray-500 mt-1 truncate" id="currentBackupFile">Documents/ProjectX/budget.xlsx</div>
+                        <div class="w-full bg-gray-200 rounded-full h-1 mt-2">
+                            <div id="backupProgressBar" class="bg-indigo-500 h-1 rounded-full" style="width: 45%"></div>
+                        </div>
+                        <div class="flex justify-between text-xs text-gray-400 mt-1">
+                            <span id="backupStatus">45% completed</span>
+                            <span id="backupETA">ETA: 12 min</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Completed Backup -->
+                <div class="flex items-start activity-item">
+                    <div class="bg-green-100 text-green-600 p-2 rounded-full mr-3">
+                        <i class="fas fa-check-circle text-sm"></i>
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium">Backup completed</div>
+                        <div class="text-xs text-gray-500 mt-1">Pictures/Vacation2023 folder</div>
+                        <div class="text-xs text-gray-400 mt-1">2 minutes ago</div>
+                    </div>
+                </div>
+                
+                <!-- Warning Example -->
+                <div class="flex items-start activity-item">
+                    <div class="bg-yellow-100 text-yellow-600 p-2 rounded-full mr-3">
+                        <i class="fas fa-exclamation-triangle text-sm"></i>
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium">Warning</div>
+                        <div class="text-xs text-gray-500 mt-1">Large file detected: Videos/tutorial.mp4 (2.4GB)</div>
+                        <div class="text-xs text-gray-400 mt-1">5 minutes ago</div>
+                    </div>
+                </div>
+                
+                <!-- New Folder Added -->
+                <div class="flex items-start activity-item">
+                    <div class="bg-purple-100 text-purple-600 p-2 rounded-full mr-3">
+                        <i class="fas fa-folder-plus text-sm"></i>
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-medium">New folder added</div>
+                        <div class="text-xs text-gray-500 mt-1">Projects/NewClient</div>
+                        <div class="text-xs text-gray-400 mt-1">10 minutes ago</div>
+                    </div>
+                </div>

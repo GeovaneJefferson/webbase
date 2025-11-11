@@ -1,0 +1,7 @@
+Bug to fix:
+1 -  Overview Section e.g: Images Card, Videos Card etc. are not the same icon size
+
+2 - Version Retention Policy make work :D
+
+3 - When a file to no have updated timeframe, only backup in .main_backup folder, in Select Backup is adding a Current File Version (Live), SHOULD NOT!
+    show only the "Main Backup" button if not timeframe are available to be choose/clikced.

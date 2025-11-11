@@ -14,7 +14,7 @@
 <body class="bg-gray-50 flex h-screen overflow-hidden">
     <!-- Left Sidebar -->
     <div id="leftSidebar" class="w-60 bg-white border-r border-gray-200 flex flex-col h-full transition-all duration-300">
-        <div class="p-4 flex items-center justify-between border-b border-gray-200" style="padding-bottom: 26px;">
+        <div class="p-4 flex items-center justify-between border-b border-gray-200" style="padding-bottom: 10px;">
             <div class="flex items-center">
                 <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold">
                     <i class="fas fa-shield-alt"></i>
@@ -122,9 +122,10 @@
                 </p>
             </div>
 
-            <div class="bg-indigo-50 border border-indigo-200 p-4 rounded-xl text-center shadow-inner mb-8">
-                <a href="#" class="w-full inline-flex items-center justify-center px-8 py-3 text-lg font-bold rounded-xl text-white bg-indigo-600 hover:bg-indigo-700 transition duration-300 ease-in-out shadow-lg">
-                    Get Lifetime Pro Access for $49
+            <div class="bg-indigo-50 border border-indigo-200 p-4 rounded-xl text-center shadow-inner mb-6">
+                <a href="#" class="w-full inline-flex items-center justify-center px-8 py-3 text-lg font-bold rounded-xl text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 transition duration-300 ease-in-out shadow-lg hover:shadow-xl transform hover:scale-105">
+                    <i class="fas fa-rocket mr-2"></i>
+                    Get Lifetime Pro Access for $19
                 </a>
                 <p class="text-sm text-indigo-500 mt-2 font-medium">
                     One-Time Payment, No Subscription.
@@ -137,7 +138,7 @@
                 <div class="flex items-start">
                     <i class="fas fa-cloud-upload-alt text-indigo-500 mt-1 mr-3 text-lg"></i>
                     <div>
-                        <p class="font-medium text-gray-700">Unlimited Cloud Backups</p>
+                        <p class="font-medium text-gray-700">Cloud Backups</p>
                         <p class="text-sm text-gray-500">Securely back up your data to popular cloud services (Dropbox, Google Drive, S3, etc.).</p>
                     </div>
                 </div>
@@ -161,8 +162,16 @@
                 <div class="flex items-start">
                     <i class="fas fa-tachometer-alt text-indigo-500 mt-1 mr-3 text-lg"></i>
                     <div>
-                        <p class="font-medium text-gray-700">Faster Performance & Priority Support</p>
-                        <p class="text-sm text-gray-500">Benefit from optimized backup processes and direct access to our support team.</p>
+                        <p class="font-medium text-gray-700">Faster Performance</p>
+                        <p class="text-sm text-gray-500">Benefit from optimized backup processes.</p>
+                    </div>
+                </div>
+
+                <div class="flex items-start">
+                    <i class="fas fa-heart text-indigo-500 mt-1 mr-3 text-lg"></i>
+                    <div>
+                        <p class="font-medium text-gray-700">Support Development</p>
+                        <p class="text-sm text-gray-500">Your purchase directly supports the continuous development and improvement of Time Machine.</p>
                     </div>
                 </div>
             </div>
@@ -278,7 +287,7 @@
                         <div class="md:w-1/3 flex flex-col">
                             <div class="flex items-center gap-3 mb-3">
                                 <div class="bg-indigo-100 text-indigo-600 p-3 rounded-lg">
-                                    <i class="fas fa-solid fa-memory text-xl"></i>
+                                    <i class="fas fa-solid fa-hard-drive text-xl"></i>
                                 </div>
                                 <div>
                                     <div id="devicesModel" class="font-semibold">N/A</div>
@@ -317,7 +326,7 @@
                                 </div>
                                 
                                 <!-- Column 2 -->
-                                <div>
+                                <!-- <div>
                                     <div class="text-xs font-medium text-gray-500">Serial Number</div>
                                     <div id="devicesSerialNumber" class="mt-1">N/A</div>
                                 </div>
@@ -328,7 +337,7 @@
                                 <div>
                                     <div class="text-xs font-medium text-gray-500">Health</div>
                                     <div id="devicesHealth" class="mt-1">N/A</div>
-                                </div>
+                                </div> -->
                             </div>
                             
                             <!-- Compact Performance Stats -->
@@ -398,48 +407,53 @@
                                     <i class="fas fa-clock text-gray-500 mr-2"></i>
                                     <span id="currentVersionTime">Current File (Latest Version)</span>
                                 </h3>
-                                <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 flex items-center">
-                                    <i class="fas fa-check-circle mr-1.5"></i> Active
-                                </span>
+                                <!-- <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 flex items-center">
+                                    <i class="fas fa-check-circle mr-1.5"></i> Current Version
+                                </span> -->
                             </div>
+
                             <div class="flex-1 overflow-auto relative">
                                 <div class="absolute inset-0 flex">
-                                    <div class="flex-1 overflow-auto p-4 font-mono text-sm" id="currentFileContent"></div>
+                                    <div class="diff-line-number-column bg-gray-50 overflow-hidden"></div> 
+                                    <div class="flex-1 overflow-auto p-4 font-mono text-sm bg-gray-50" id="currentFileContent" style="display: flex; justify-content: center; align-items: center;"></div> 
                                 </div>
                             </div>
                         </div>
             
                         <!-- Right Panel: Selected Backup -->
                         <div class="flex flex-col overflow-hidden">
+                            
                             <div class="flex justify-between items-center mb-4 flex-shrink-0">
                                 <h3 class="font-medium text-sm flex items-center">
                                     <i class="fas fa-clock text-gray-500 mr-2"></i>
                                     <span id="backupVersionTime">Backup Version</span>
                                 </h3>
-                                <!-- Need space here. need to push Actions buttons to the right side -->
-                                <span class="flex-grow"></span>
-                                <!-- ACTION BUTTONS: RESTORE | OPEN | OPEN LOCATION -->
+                                
+                                <span class="flex-grow"></span> 
+                                
                                 <div id="backupVersionActions" class="flex items-center gap-2">
-                                     <button id="restoreFileBtn"data-action="restore" class="action-btn flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-50">
+                                    <button id="restoreFileBtn" data-action="restore" class="action-btn flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-50">
                                         <i class="fas fa-history text-red-500"></i> Restore File
                                     </button>
                                     <button id="openFileBtn" data-action="open" class="action-btn flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-50">
                                         <i class="fas fa-external-link-alt text-blue-500"></i> Open
                                     </button>
-                                     <button id="openLocationBtn" data-action="open-location" class="action-btn flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-50">
+                                    <button id="openLocationBtn" data-action="open-location" class="action-btn flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-50">
                                         <i class="fas fa-folder-open text-blue-500"></i> Open Location
                                     </button>
                                 </div>
-                            <!-- END ACTION BUTTONS -->
+                            </div> 
                             <div class="flex-1 overflow-auto relative">
                                 <div class="absolute inset-0 flex">
-                                    <div class="flex-1 overflow-auto p-4 font-mono text-sm bg-gray-50" id="backupFileContent"></div>
+                                    <div class="diff-line-number-column bg-gray-50 overflow-hidden"></div>
+                                    <div class="flex-1 overflow-auto p-4 font-mono text-sm bg-gray-50" id="backupFileContent"  style="display: flex; justify-content: center; align-items: center;"></div> 
                                 </div>
                             </div>
                         </div>
                     </div>
                 </main>
             </div>
+
             <!-- Devices Section -->
             <div id="devices-section" class="content-section">
                 <div class="bg-white rounded-lg shadow-sm p-4">
@@ -573,7 +587,7 @@
                 </div>
 
                 <!-- Retention Policy -->
-                <div class="bg-white rounded-lg shadow-sm p-4 mb-6">
+                <!-- <div class="bg-white rounded-lg shadow-sm p-4 mb-6">
                     <h2 class="text-xl font-semibold text-gray-700 mb-4 flex items-center">
                         <i class="fas fa-calendar-check mr-3 text-indigo-500"></i> Version Retention Policy
                     </h2>
@@ -584,7 +598,7 @@
                         <option >Keep versions for 30 days</option>
                         <option >Keep versions for 90 days</option>
                     </select>
-                </div>
+                </div> -->
             </div>
             
             <!-- Logs Section -->
@@ -645,74 +659,7 @@
             
             <!-- Activity Feed Container -->
             <div class="space-y-4" id="activityFeed">
-                <!-- Analyzing Files Activity -->
-                <div class="flex items-start activity-item">
-                    <div class="bg-blue-100 text-blue-600 p-2 rounded-full mr-3">
-                        <i class="fas fa-search text-sm"></i>
-                    </div>
-                    <div class="flex-1">
-                        <div class="text-sm font-medium">Analyzing files</div>
-                        <div class="text-xs text-gray-500 mt-1" id="analyzingStatus">Scanning Documents folder...</div>
-                        <div class="w-full bg-gray-200 rounded-full h-1 mt-2">
-                            <div id="analyzingProgress" class="bg-blue-500 h-1 rounded-full" style="width: 30%"></div>
-                        </div>
-                        <div class="text-xs text-gray-400 mt-1" id="analyzingCount">32 files processed</div>
-                    </div>
-                </div>
-                
-                <!-- Current Backup Activity -->
-                <div class="flex items-start activity-item">
-                    <div class="bg-indigo-100 text-indigo-600 p-2 rounded-full mr-3">
-                        <i class="fas fa-copy text-sm"></i>
-                    </div>
-                    <div class="flex-1">
-                        <div class="text-sm font-medium">Backup in progress</div>
-                        <div class="text-xs text-gray-500 mt-1 truncate" id="currentBackupFile">Documents/ProjectX/budget.xlsx</div>
-                        <div class="w-full bg-gray-200 rounded-full h-1 mt-2">
-                            <div id="backupProgressBar" class="bg-indigo-500 h-1 rounded-full" style="width: 45%"></div>
-                        </div>
-                        <div class="flex justify-between text-xs text-gray-400 mt-1">
-                            <span id="backupStatus">45% completed</span>
-                            <span id="backupETA">ETA: 12 min</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Completed Backup -->
-                <div class="flex items-start activity-item">
-                    <div class="bg-green-100 text-green-600 p-2 rounded-full mr-3">
-                        <i class="fas fa-check-circle text-sm"></i>
-                    </div>
-                    <div class="flex-1">
-                        <div class="text-sm font-medium">Backup completed</div>
-                        <div class="text-xs text-gray-500 mt-1">Pictures/Vacation2023 folder</div>
-                        <div class="text-xs text-gray-400 mt-1">2 minutes ago</div>
-                    </div>
-                </div>
-                
-                <!-- Warning Example -->
-                <div class="flex items-start activity-item">
-                    <div class="bg-yellow-100 text-yellow-600 p-2 rounded-full mr-3">
-                        <i class="fas fa-exclamation-triangle text-sm"></i>
-                    </div>
-                    <div class="flex-1">
-                        <div class="text-sm font-medium">Warning</div>
-                        <div class="text-xs text-gray-500 mt-1">Large file detected: Videos/tutorial.mp4 (2.4GB)</div>
-                        <div class="text-xs text-gray-400 mt-1">5 minutes ago</div>
-                    </div>
-                </div>
-                
-                <!-- New Folder Added -->
-                <div class="flex items-start activity-item">
-                    <div class="bg-purple-100 text-purple-600 p-2 rounded-full mr-3">
-                        <i class="fas fa-folder-plus text-sm"></i>
-                    </div>
-                    <div class="flex-1">
-                        <div class="text-sm font-medium">New folder added</div>
-                        <div class="text-xs text-gray-500 mt-1">Projects/NewClient</div>
-                        <div class="text-xs text-gray-400 mt-1">10 minutes ago</div>
-                    </div>
-                </div>
+                <!-- Activities will automatically be added down her -->
             </div>
         </div>
 
@@ -824,3 +771,4 @@
     </div>
     <script src="/static/js/scripts.js"></script>
 </html>
+
