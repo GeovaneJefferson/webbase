@@ -1,3 +1,13 @@
+// TODO 
+// 1. version-pills-container-wrapper, add "Getting version..." label while version being searched
+// 2. Bug when user change backup device and search for a file, "Select Backup" show weird/wrong version,
+//  maybe from the previous choose backup device.
+// 3. Make the appimage use Ubuntu Sans downloaded/local fonts.
+
+// =============================================
+// CONSTANTS
+// =============================================
+
 const MAX_LOG_ITEMS = 8;
 
 
@@ -8,9 +18,6 @@ class AppState {
     constructor() {
         this.backup = {
             running: true,
-            progress: 65,
-            processedFiles: 342,
-            totalFiles: 526
         };
         this.intervals = {
             backup: null,
@@ -98,7 +105,7 @@ class Utils {
         };
 
     static getDeviceIcon(device) {
-        if (!device) return 'fa-brands fa-usb';
+        if (!device) return 'bi-usb-c';
         return getFileIconDetails(device.filesystem).iconClass;  // Return correct icon class
     };
 
@@ -166,7 +173,7 @@ class BackupStatusClient {
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
         this.heartbeatInterval = null;
-        this.pongTimeout = null; // <-- NEW: Timer for pong response timeout
+        this.pongTimeout = null; // <-- Timer for pong response timeout
         this.PING_INTERVAL = 30000; // 30 seconds
         this.PONG_TIMEOUT_DURATION = 5000; // 5 seconds extra to receive pong
         this.init();
@@ -218,18 +225,21 @@ class BackupStatusClient {
             this.clearPongTimeout();
             return; 
         }
-        // Route all activity-related messages to ActivityManager
+        
+        // Route all activity-related messages to UIMessageHandler
         if (data.type === 'scanning'  || data.type === 'analyzing' || 
             data.type === 'progress' || data.type === 'completed' || 
             data.type === 'warning' || data.type === 'info') {
             
+            console.log('WebSocket message received:', data); // Debug log
             UIMessageHandler.handleMessage(data);
             
-            // Clear analyzing/progress when backup completes
-            if (data.type === 'completed') {
-                ActivityManager.clearAnalyzingActivity();
-                ActivityManager.clearProgressActivity();
-            }
+            // TO DELETE
+            // // Clear analyzing/progress when backup completes
+            // if (data.type === 'completed') {
+            //     ActivityManager.clearAnalyzingActivity();
+            //     ActivityManager.clearProgressActivity();
+            // }
         }
     }
 
@@ -246,10 +256,10 @@ class BackupStatusClient {
         const statusElement = document.getElementById('realTimeStatusLabel');
         if (statusElement) {
             if (connected) {
-                statusElement.className = 'fas fa-circle text-green-500 mr-1 text-xs';
+                statusElement.className = 'bi bi-circle-fill text-green-500 mr-1 text-xs';
                 statusElement.title = 'Connected to backup daemon';
             } else {
-                statusElement.className = 'fas fa-circle text-red-500 mr-1 text-xs';
+                statusElement.className = 'bi bi-circle-fill text-red-500 mr-1 text-xs';
                 statusElement.title = 'Disconnected from backup daemon';
             }
         }
@@ -317,11 +327,6 @@ class BackupStatusClient {
     }
 }
 
-// Initialize when page loads
-document.addEventListener('DOMContentLoaded', () => {
-    window.backupStatusClient = new BackupStatusClient();
-    window.backupStatusClient.startHeartbeat();
-});
 
 // =============================================
 // EXTENSION MANAGER
@@ -333,40 +338,40 @@ document.addEventListener('DOMContentLoaded', () => {
  */
 function getFileIconDetails(filename) {
     if (typeof filename !== 'string' || !filename) {
-        return { iconClass: 'fas fa-file', iconColor: 'text-gray-500', thumbnail: null };
+        return { iconClass: 'bi bi-file-earmark-text-fill', iconColor: 'text-gray-500', thumbnail: null };
     }
     const ext = filename.split('.').pop().toLowerCase();
-    let iconClass = 'fas fa-file';
+    let iconClass = 'bi bi-file-earmark-text-fill';
     let iconColor = 'text-gray-500'; // Default grey color
     let thumbnail = null;
 
     if (ext === 'txt') {
-        iconClass = 'fas fa-file-alt';
+        iconClass = 'bi bi-file-earmark-text-fill';
         iconColor = 'text-green-500';
     } else if (ext === 'blend') {
-        iconClass = 'fas fa-cube';
+        iconClass = 'bi bi-box-fill';
         iconColor = 'text-orange-500';
     }
     else if (['md', 'txt', 'log', 'ini', 'config', 'cfg', 'conf', 'sh', 'py', 'js', 'html', 'css'].includes(ext)) {
-        iconClass = 'fas fa-file-code';
+        iconClass = 'bi bi-file-code-fill';
         iconColor = 'text-indigo-500';
     } else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp'].includes(ext)) {
 
-        iconClass = 'fas fa-image';
+        iconClass = 'bi bi-file-earmark-image-fill';
         iconColor = 'text-purple-500';
         thumbnail = `/static/data/images/${ext}.png`; // Example thumbnail path
     } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
-        iconClass = 'fas fa-file-archive';
+        iconClass = 'bi bi-file-earmark-zip-fill';
         iconColor = 'text-blue-500';
     } else if (['mp4', 'avi', 'mov', 'mkv'].includes(ext)) {
-        iconClass = 'fas fa-file-video';
+        iconClass = 'bi bi-file-earmark-play-fill';
         iconColor = 'text-red-500';
     }  else if (['mp3', 'wav', 'flac', 'aac'].includes(ext)) {
-        iconClass = 'fas fa-file-audio';
+        iconClass = 'bi bi-file-earmark-music-fill';
         iconColor = 'text-blue-500';
     }
     else if (['usb', 'vnmw', 'sd', 'mmc', 'sd-card', 'hd', 'memory', 'ext4'].includes(ext)) {
-        iconClass = 'fa-solid fa-hard-drive';
+        iconClass = 'bi bi-device-hdd-fill';
         iconColor = 'text-green-500';
     }
     return { iconClass, iconColor, thumbnail };
@@ -427,111 +432,108 @@ const DiffManager = {
     },
 
     showDiff: function(fileItem) {
+        const fileName = fileItem.querySelector('h3').textContent;
+        
+        // Find the file object from latestSearchResults
+        let fileObj = null;
+        if (window.latestSearchResults) {
+            fileObj = window.latestSearchResults.find(f => f.name === fileName);
+        }
+        
+        if (!fileObj) {
+            console.warn('File object not found for diff view:', fileName);
+            return;
+        }
+
         this.currentFile = {
-            name: fileItem.querySelector('h3').textContent,
-            path: fileItem.querySelector('.text-xs.text-gray-400 span:last-child').textContent.replace('Modified: ', ''),
-            currentContent: '',
-            versions: []
+            name: fileName,
+            path: fileObj.path || fileName,
+            currentContent: fileObj.versions?.home?.content || '',
+            versions: fileObj.versions || []
         };
 
         this.showLoadingState();
         document.getElementById('diffModal').classList.remove('hidden');
         document.getElementById('diffModalTitle').textContent = `Time Machine: ${this.currentFile.name}`;
-
-        // Simulate fetching versions
-        setTimeout(() => {
-            const now = new Date();
-            const baseContent = `// Sample file content\n\nfunction example() {\n    return "This is the ${this.currentFile.name}";\n}\n\n// Additional code\nconst config = {\n    version: "1.0",\n    settings: {\n        debug: true\n    }\n};\n`;
-            
-            this.versions = [
-                {
-                    id: 1,
-                    date: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 16, 30),
-                    content: baseContent.replace('"1.0"', '"1.2"').replace('debug: true', 'debug: false') + '\n// Added new feature\n',
-                    changes: 3,
-                    sizeInBytes: 1160713 // <- ADD THIS
-                },
-                {
-                    id: 2,
-                    date: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 15),
-                    content: baseContent.replace('"1.0"', '"1.1"') + '\n// Minor update\n',
-                    changes: 2,
-                    sizeInBytes: 1160713 // <- ADD THIS
-                },
-                {
-                    id: 3,
-                    date: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 10, 0),
-                    content: baseContent,
-                    changes: 0,
-                    sizeInBytes: 1160713 // <- ADD THIS
-                }
-            ];
-
-            this.versions.sort((a, b) => b.date - a.date);
-            this.currentFile.currentContent = this.versions[0].content;
-            this.renderDiffView();
-        }, 500);
+        
+        // Render the diff view with available versions
+        this.renderDiffView();
     },
 
+    // Update renderDiffView to handle the case where versions might be empty
     renderDiffView: function() {
-        if (this.versions.length === 0) return;
+        if (!this.currentFile.versions || this.currentFile.versions.length === 0) {
+            console.warn('No versions available for diff view');
+            return;
+        }
 
         this.currentVersionIndex = 0;
         this.getFileBackupVersions();
         this.showVersion(this.currentVersionIndex);
 
         document.getElementById('currentFileName').textContent = this.currentFile.name;
-        document.getElementById('versionInfo').textContent = `Showing version 1 of ${this.versions.length}`;
+        document.getElementById('versionInfo').textContent = `Showing version 1 of ${Object.keys(this.currentFile.versions).length}`;
     },
 
-    // Renders all the version pills in the container
+    // Renders all the version pills in the versionPillsContainer
     getFileBackupVersions: function() {
-        const container = document.getElementById('version-pills-container');
-        if (!container) return; 
-        container.innerHTML = ''; 
+        if (!versionPillsContainer) return; 
+        versionPillsContainer.innerHTML = ''; 
 
-        this.versions.forEach((version, index) => {
+        const versions = this.currentFile.versions;
+        const versionKeys = Object.keys(versions).filter(key => key !== 'home');
+        
+        if (versionKeys.length === 0) {
+            versionPillsContainer.innerHTML = '<div class="text-gray-500 text-sm p-2">No backup versions available</div>';
+            return;
+        }
+
+        versionKeys.forEach((versionKey, index) => {
+            const version = versions[versionKey];
             const isActive = index === 0;
             const pill = document.createElement('div');
             
-            // Set initial styling for the first pill
             pill.className = `version-pill text-xs font-medium px-3 py-1 rounded-full cursor-pointer transition-colors duration-200 ${isActive ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`;
             
             // Format the date for the pill display
-            pill.textContent = version.date.toLocaleString(undefined, { 
-                month: 'short', 
-                day: 'numeric', 
-                hour: '2-digit', 
-                minute: '2-digit' 
-            });
+            pill.textContent = version.time || versionKey;
             pill.setAttribute('data-index', index);
+            pill.setAttribute('data-version-key', versionKey);
 
-            // Add click listener to select version and update details
             pill.addEventListener('click', () => {
-                this.showVersion(index); // This triggers the diff view update
+                const clickedVersionKey = pill.getAttribute('data-version-key');
+                this.showVersionByKey(clickedVersionKey);
                 
-                // Manually update the active state for the pills
+                // Update active state
                 document.querySelectorAll('.version-pill').forEach(p => {
-                    p.classList.replace('bg-indigo-600', 'bg-gray-100');
-                    p.classList.replace('text-white', 'text-gray-700');
+                    p.classList.remove('bg-indigo-600', 'text-white');
+                    p.classList.add('bg-gray-100', 'text-gray-700');
                 });
                 pill.classList.add('bg-indigo-600', 'text-white');
-                
-                this.updateFileVersionDetails(version); // Update the size on click
             });
-            container.appendChild(pill);
+            
+            versionPillsContainer.appendChild(pill);
         });
 
-        if (this.versions.length > 0) {
-            const mainVersion = this.versions[0];
+        if (versionKeys.length > 0) {
+            const firstVersionKey = versionKeys[0];
+            const mainVersion = versions[firstVersionKey];
             
-            // 1. Visually select the first pill (if not already done)
-            document.querySelector('.version-pill[data-index="0"]').classList.add('bg-indigo-600', 'text-white');
-
-            // 2. The first version is used for BOTH sides initially (or you might have a dedicated 'Current File' object).
-            // Assuming the first version in the list (index 0) is the baseline/main file.
+            document.querySelector('.version-pill[data-version-key="' + firstVersionKey + '"]').classList.add('bg-indigo-600', 'text-white');
             this.updateDiffViewDetails(mainVersion, mainVersion);
         }
+    },
+
+    showVersionByKey: function(versionKey) {
+        const version = this.currentFile.versions[versionKey];
+        if (!version) return;
+        
+        const dateStr = version.time || versionKey;
+        
+        document.getElementById('versionDate').textContent = dateStr;
+        this.updateFileVersionDetails(version);
+        
+        this.performDiff(this.currentFile.currentContent, version.content || '');
     },
 
     // Updates the human-readable details, including the size
@@ -614,8 +616,8 @@ const DiffManager = {
     },
 
     renderDiff: function(diff, currentContent, backupContent) {
-        const currentLines = currentContent.split('\n');
-        const backupLines = backupContent.split('\n');
+        // const currentLines = currentContent.split('\n');
+        // const backupLines = backupContent.split('\n');
         
         let currentLineNumber = 1;
         let backupLineNumber = 1;
@@ -688,14 +690,99 @@ const DiffManager = {
     },
 
     restoreFile: function() {
-        if (confirm(`Restore this file to the version from ${this.versions[this.currentVersionIndex].date.toLocaleString()}?`)) {
-            this.currentFile.currentContent = this.versions[this.currentVersionIndex].content;
+        // Add safety checks before accessing versions
+        if (!this.versions || this.versions.length === 0 || this.currentVersionIndex === null || this.currentVersionIndex === undefined) {
+            console.warn("No versions available or no version selected");
+            return;
+        }
+        
+        const version = this.versions[this.currentVersionIndex];
+        if (!version || !version.path) {
+            console.warn("Selected version is invalid or missing path");
+            return;
+        }
+
+        if (confirm(`Restore this file to the version from ${version.date.toLocaleString()}?`)) {
+            // Call the global restoreFile function
+            restoreFile(version.path);
+            
+            // Update local content
+            this.currentFile.currentContent = version.content;
             this.showVersion(this.currentVersionIndex);
-            this.showToast('File restored successfully');
+            
+            // Close the diff modal
+            this.closeModal();
+            
+            // Navigate to overview page
+            Navigation.showSection('overview');
+            
+            // Add restore notification to activity feed ONLY
+            this.addRestoreNotification(version);
         }
     },
 
-    // ... (keep other existing methods like toggleIgnoreWhitespace, onSliderChange, etc.)
+    // Add this new function to handle the restore notification
+    addRestoreNotification: function(version) {
+        const fileName = version.path.split('/').pop();
+        const timestamp = new Date().toISOString();
+        
+        // Create restore activity message
+        const restoreActivity = {
+            type: 'restore',
+            title: 'File Restored',
+            description: `"${fileName}" has been restored from backup`,
+            timestamp: timestamp,
+            fileName: fileName,
+            versionTime: version.time || version.date.toLocaleString()
+        };
+        
+        // Add to ActivityManager for persistence and display in activityFeed ONLY
+        ActivityManager.addPersistedActivity(restoreActivity);
+    },
+
+    normalizeWhitespace: function(content) {
+        if (!content) return '';
+        return content.replace(/\s+/g, ' ').trim();
+    },
+
+    toggleIgnoreWhitespace: function() {
+        this.ignoreWhitespace = !this.ignoreWhitespace;
+        
+        const toggleBtn = document.getElementById('ignoreWhitespaceToggle');
+        const icon = toggleBtn.querySelector('i');
+        
+        if (this.ignoreWhitespace) {
+            toggleBtn.classList.add('bg-indigo-100', 'text-indigo-700', 'border-indigo-300');
+            toggleBtn.classList.remove('bg-gray-100', 'text-gray-700', 'border-gray-300');
+            icon.className = 'bi bi-check-lg mr-1';
+        } else {
+            toggleBtn.classList.remove('bg-indigo-100', 'text-indigo-700', 'border-indigo-300');
+            toggleBtn.classList.add('bg-gray-100', 'text-gray-700', 'border-gray-300');
+            icon.className = 'bi bi-dash-lg mr-1';
+        }
+        
+        // Re-render diff with new whitespace setting
+        if (this.currentVersionIndex !== null && this.versions.length > 0) {
+            const version = this.versions[this.currentVersionIndex];
+            this.performDiff(this.currentFile.currentContent, version.content);
+        }
+        
+        this.showToast(`Whitespace ${this.ignoreWhitespace ? 'ignored' : 'included'} in diff`);
+    },
+
+    showPreviousVersion: function() {
+        if (this.currentVersionIndex < this.versions.length - 1) {
+            this.showVersion(this.currentVersionIndex + 1);
+            this.updateSliderPosition();
+        }
+    },
+
+    showNextVersion: function() {
+        if (this.currentVersionIndex > 0) {
+            this.showVersion(this.currentVersionIndex - 1);
+            this.updateSliderPosition();
+        }
+    },
 };
 
 
@@ -709,30 +796,60 @@ const BackupManager = {
             .then(data => {
                 if (data.success) {
                     BackupManager.updateUI(data);
+                    BackupManager.checkDaemonStatus();  // Check if daemon is running and update status
+                    
+                    // Refresh suggested files when backup data loads
+                    SuggestedFiles.load();
+                    
+                    // Search bar
+                    this.searchInput.disabled = false;  // Enable searchbar
                 } else {
-                    // Show friendly error in UI
-                    elements.backupLocation.innerHTML = `
-                        <span class="text-red-500">⚠️ Action Required</span>
-                    `;
-                    elements.backupUsage.innerHTML = `
-                        <div class="text-sm">
-                            ${data.error}
-                            <button onclick="Navigation.showSection('devices')" 
-                                    class="mt-2 text-indigo-600 hover:text-indigo-800 font-medium">
-                                Go to Devices Section Now →
-                            </button>
-                        </div>
-                    `;
-                    
-                    // Visual indicator
-                    elements.backupProgress.style.width = "0%";
-                    elements.backupProgress.className = 'h-2 rounded-full bg-yellow-500';
-                    
-                    // Only show alert for first occurrence
-                    // if (!AppState.backup.errorShown) {
-                    //     alert(`Setup Required:\n\n${data.error}`);        
-                    //     AppState.backup.errorShown = true;
-                    // }
+                    // User did not registered a backup device yet
+                    if (data.error.includes('Please select a backup device first')) {
+                        elements.backupLocation.innerHTML = `
+                            <span class="text-red-500">⚠️ Action Required</span>
+                        `;
+                        elements.backupUsage.innerHTML = `
+                            <div class="text-sm">
+                                ${data.error}
+                                <button onclick="Navigation.showSection('devices')" 
+                                        class="mt-2 text-indigo-600 hover:text-indigo-800 font-medium">
+                                    Go to Devices Section Now →
+                                </button>
+                            </div>
+                        `;
+                        
+                        elements.backupProgress.style.width = "0%";
+                        elements.backupProgress.className = 'h-2 rounded-full bg-yellow-500';
+                    }
+                    else if (data.error.includes('device is not available')) {
+                        BackupManager.updateUI(data);
+
+                        // Search bar
+                        this.searchInput.disabled = true;  // Disable searchbar
+
+                        elements.backupLocation.innerHTML = `
+                            <span class="text-red-500">⚠️ Action Required</span>
+                        `;
+                        elements.backupUsage.innerHTML = `
+                            <div class="text-sm">
+                                ${data.error}
+                            </div>
+                        `;
+                        
+                        elements.backupProgress.style.width = "0%";
+                        elements.backupProgress.className = 'h-2 rounded-full bg-yellow-500';
+                    } else {
+                        // Handle other errors
+                        elements.backupLocation.innerHTML = `
+                            <span class="text-red-500">⚠️ Error</span>
+                        `;
+                        elements.backupUsage.innerHTML = `
+                            <div class="text-sm">
+                                ${data.error}
+                            </div>
+                        `;
+                    }                        
                 }
             })
             .catch(error => {
@@ -747,8 +864,9 @@ const BackupManager = {
             const displayLocation = data.location.replace(/\\/g, '/').replace(/\/$/, '');
             const pathParts = displayLocation.split('/').filter(part => part.trim() !== '');
             const displayName = pathParts.length > 0 ? pathParts[pathParts.length - 1] : displayLocation;
-
+            
             elements.backupLocation.textContent = displayLocation;
+            // elements.sourceLocation.textContent = data.users_home_path;
             elements.sourceLocation.textContent = data.users_home_path;
 
             // User's home usage (Right Side)
@@ -818,110 +936,100 @@ const BackupManager = {
         }
     },
 
-    updateStatus: () => {
-        if (AppState.backup.running) {
-            AppState.backup.progress += 1;
-            AppState.backup.processedFiles = Math.floor(
-                AppState.backup.totalFiles * (AppState.backup.progress/100)
-            );
+    checkDaemonStatus: () => {
+        // Check if daemon is running via WebSocket connection status
+        if (window.backupStatusClient && window.backupStatusClient.ws) {
+            const isConnected = window.backupStatusClient.ws.readyState === WebSocket.OPEN;
+            const realTimeStatusLabel = document.getElementById('realTimeStatusLabel');
             
-            if (AppState.backup.progress > 100) {
-                AppState.backup.progress = 100;
-                AppState.backup.processedFiles = AppState.backup.totalFiles;
-                elements.backupStatusText.textContent = "Backup completed successfully";
-                elements.progressBar.classList.replace('bg-indigo-600', 'bg-green-500');
-                elements.etaTime.textContent = "Completed";
-                elements.currentFile.textContent = "All files processed";
-                clearInterval(AppState.intervals.backup);
-            } else {
-                elements.progressBar.style.width = AppState.backup.progress + '%';
-                elements.processedFiles.textContent = 
-                    `Processing: ${AppState.backup.processedFiles} of ${AppState.backup.totalFiles} files`;
-                elements.etaTime.textContent = 
-                    `ETA: ${Math.floor((100 - AppState.backup.progress) * 0.2)} minutes`;
-                
-                if (AppState.backup.progress % 5 === 0) {
-                    const files = [
-                        "C:\\Users\\Documents\\Projects\\Budget_2023.xlsx",
-                        "C:\\Users\\Documents\\Reports\\Q3_Report.docx",
-                        "C:\\Users\\Documents\\Presentations\\Product_Launch.pptx"
-                    ];
-                    elements.currentFile.textContent = 
-                        files[Math.floor(Math.random() * files.length)];
+            if (realTimeStatusLabel) {
+                if (isConnected) {
+                    realTimeStatusLabel.className = 'bi bi-circle-fill text-green-500 mr-1 text-xs';
+                    realTimeStatusLabel.title = 'Real-time backup active';
+                } else {
+                    realTimeStatusLabel.className = 'bi bi-circle-fill text-red-500 mr-1 text-xs';
+                    realTimeStatusLabel.title = 'Real-time backup inactive';
                 }
+            }
+        } else {
+            // No WebSocket connection - daemon not running
+            const realTimeStatusLabel = document.getElementById('realTimeStatusLabel');
+            if (realTimeStatusLabel) {
+                realTimeStatusLabel.className = 'bi bi-circle-fill text-red-500 mr-1 text-xs';
+                realTimeStatusLabel.title = 'Real-time backup not running';
             }
         }
     },
+
 
     //////////////////////////////////////////////////////////////////////////
     // AUTOMATICALLY REALTIME CHECKBOX
     //////////////////////////////////////////////////////////////////////////
     toggle: () => {
-        AppState.backup.running = !AppState.backup.running;
+        const realTimeCheckbox = document.getElementById('realTimeCheckbox');
         
-        const realTimeCheckbox = document.getElementById('realTimeCheckbox');  // settings section        
-        const statusLabel = document.getElementById('realTimeStatusLabel');
+        // 1. DISABLE INPUT immediately to prevent multiple clicks
+        realTimeCheckbox.disabled = true;
+        
+        // Determine intended state based on current click
+        const isChecked = realTimeCheckbox.checked;
+        
+        // Optimistic UI Update (Update visuals immediately)
+        BackupManager.updateVisualStatus(isChecked);
 
-        if (AppState.backup.running) {
-            if (realTimeCheckbox) {
-                realTimeCheckbox.checked = true;
-            }
-            AppState.intervals.backup = setInterval(BackupManager.updateStatus, 1000);
-        } else {
-            if (realTimeCheckbox) {
-                realTimeCheckbox.checked = false;
-            }            
-            clearInterval(AppState.intervals.backup);
-        }
-        
-        // Update real-time status label and Icon color
-        if (realTimeCheckbox.checked) {
-            console.log("Real-time backup is now active");
-            // Change label and icon to active state
-            // statusLabel.innerHTML = "Real-time backup active";
-            statusLabel.classList.replace('text-red-500', 'text-green-500');
-            statusLabel.classList.add('fas', 'fa-circle');
-            statusLabel.classList.remove('far', 'fa-circle');
-        } else {
-            // Change label and icon to inactive state
-            // statusLabel.innerHTML = "Real-time backup inactive";
-            statusLabel.classList.replace('text-green-500', 'text-red-500');
-            statusLabel.classList.add('far', 'fa-circle');
-            statusLabel.classList.remove('fas', 'fa-circle');
-        }   
-        BackupManager.updateRealTimeBackupState(realTimeCheckbox.checked);
+        // 2. Send Request
+        BackupManager.updateRealTimeBackupState(isChecked)
+            .finally(() => {
+                // 3. RE-ENABLE INPUT when request finishes
+                realTimeCheckbox.disabled = false;
+            });
     },
-
-    // Send request to backend to toggle real-time backup
+    
+    updateVisualStatus: (isActive) => {
+        appState.backup.running = isActive;
+        const statusLabel = document.getElementById('realTimeStatusLabel');
+        
+        if (statusLabel) {
+            if (isActive) {
+                statusLabel.classList.replace('text-red-500', 'text-green-500');
+                statusLabel.classList.replace('far', 'fas');
+                statusLabel.title = "Real-time backup active";
+            } else {
+                statusLabel.classList.replace('text-green-500', 'text-red-500');
+                statusLabel.classList.replace('fas', 'far');
+                statusLabel.title = "Real-time backup inactive";
+            }
+        }
+    },
+    
     updateRealTimeBackupState: (isChecked) => {
-        fetch('/api/realtime-backup/daemon', {
+        return fetch('/api/realtime-backup/daemon', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ is_active: isChecked }),
         })
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                console.error("Error toggling real-time backup:", data.error);
-                alert("Error toggling real-time backup: " + data.error);
+                console.error("Error toggling daemon:", data.error);
+                alert("Failed to toggle backup: " + data.error);
+                
+                // Revert UI on error
+                document.getElementById('realTimeCheckbox').checked = !isChecked;
+                BackupManager.updateVisualStatus(!isChecked);
+            } else {
+                console.log("Daemon status updated:", data.status);
             }
-            // You could add further UI feedback here (e.g. success message)
+        })
+        .catch(err => {
+            console.error("Network error:", err);
+            // Revert UI on error
+            document.getElementById('realTimeCheckbox').checked = !isChecked;
+            BackupManager.updateVisualStatus(!isChecked);
         });
-    }, 
-    //////////////////////////////////////////////////////////////////////////
-
-    stop: () => {
-        clearInterval(AppState.intervals.backup);
-        elements.backupStatusText.textContent = "Backup stopped by user";
-        elements.progressBar.classList.replace('bg-indigo-600', 'bg-red-500');
-        elements.etaTime.textContent = "Stopped";
-        document.getElementById('pauseBackupBtn').innerHTML = 
-            '<i class="fas fa-play mr-2"></i><span>Start Backup</span>';
-        AppState.backup.running = false;
     },
-};
+};    
+
 
 // =============================================
 // DEVICE MANAGEMENT
@@ -988,7 +1096,7 @@ const DeviceManager = {
                     <div class="font-medium truncate">${DeviceManager.getName(device)}</div>
                     <div class="text-sm text-gray-500 mt-1">${Utils.formatBytes(device.free)} free of ${Utils.formatBytes(device.total)}</div>
                     <div class="flex items-center mt-2 text-xs text-gray-500">
-                        <i class="fas fa-map-marker-alt mr-1"></i>
+                        <i class="bi bi-geo-alt-fill mr-1"></i>
                         <span class="truncate">${device.mount_point}</span>
                     </div>
                 </div>
@@ -1031,19 +1139,19 @@ const DeviceManager = {
                 });
                 
                 this.classList.add('selected');
-                AppState.selectedDevice = {
+                appState.selectedDevice = {
                     path: this.getAttribute('data-device-path'),
                     info: JSON.parse(this.getAttribute('data-device-info'))
                 };
                 
-                console.log('Selected device state:', AppState.selectedDevice);
+                console.log('Selected device state:', appState.selectedDevice);
                 DeviceManager.updateSelectionUI();
             });
         });
     },
 
     updateSelectionUI: () => {
-        const { path, info } = AppState.selectedDevice;
+        const { path, info } = appState.selectedDevice;
         const percentUsed = Math.round((info.used / info.total) * 100);
         
         elements.selectedDevicePath.textContent = path;
@@ -1057,7 +1165,7 @@ const DeviceManager = {
 
     // Save the selected device configuration
     confirmSelection: () => {
-        if (!AppState.selectedDevice) {
+        if (!appState.selectedDevice) {
             alert('Please select a device first');
             return;
         }
@@ -1066,8 +1174,8 @@ const DeviceManager = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                path: AppState.selectedDevice.path,
-                device_info: AppState.selectedDevice.info
+                path: appState.selectedDevice.path,
+                device_info: appState.selectedDevice.info
             })
         })
         .then(response => {
@@ -1091,7 +1199,7 @@ const DeviceManager = {
     showNoDevices: () => {
         elements.devicesContainer.innerHTML = `
             <div class="text-center py-8">
-                <i class="fas fa-hdd text-gray-300 text-4xl mb-2"></i>
+                <i class="bi bi-hdd-fill text-gray-300 text-4xl mb-2"></i>
                 <div class="text-gray-500">No storage devices found</div>
                 <div class="text-sm text-gray-400 mt-1">Connect a USB drive or external storage and click Refresh</div>
             </div>
@@ -1101,7 +1209,7 @@ const DeviceManager = {
     showError: (error) => {
         elements.devicesContainer.innerHTML = `
             <div class="text-center py-8 text-red-500">
-                <i class="fas fa-exclamation-triangle text-xl mb-2"></i>
+                <i class="bi bi-exclamation-triangle-fill text-xl mb-2"></i>
                 <div>Error loading devices</div>
                 <div class="text-sm text-gray-500 mt-1">${error.message}</div>
             </div>
@@ -1110,11 +1218,11 @@ const DeviceManager = {
 
     showSelectionSuccess: () => {
         const btn = document.getElementById('confirmSelectionBtn');
-        btn.innerHTML = '<i class="fas fa-check mr-2"></i> Selected!';
+        btn.innerHTML = '<i class="bi bi-check mr-2"></i> Selected!';
         btn.classList.replace('bg-indigo-600', 'bg-green-500');
         
         setTimeout(() => {
-            btn.innerHTML = '<i class="fas fa-check mr-2"></i> Confirm Selection';
+            btn.innerHTML = '<i class="bi bi-check mr-2"></i> Confirm Selection';
             btn.classList.replace('bg-green-500', 'bg-indigo-600');
             Navigation.showSection('overview');
         }, 2000);
@@ -1195,12 +1303,6 @@ const Navigation = {
 // =============================================
 const UIControls = {
     setup: () => {
-         // Backup control buttons
-        // document.getElementById('pauseBackupCheckbox').addEventListener('change', BackupManager.toggle);
-        // document.getElementById('pauseBackupBtn2').addEventListener('click', BackupManager.toggle);  // TO DELETE
-        // document.getElementById('stopBackupBtn').addEventListener('click', BackupManager.stop);  // TO DELETE
-        
-
         // Device management
         document.getElementById('refreshDevicesBtn').addEventListener('click', DeviceManager.load);
         
@@ -1230,12 +1332,29 @@ const UIControls = {
         const watchedFoldersToggleIcon = document.getElementById('watchedFoldersToggleIcon');
 
         if (watchedFoldersToggle && watchedFoldersContent && watchedFoldersToggleIcon) {
-            watchedFoldersToggle.addEventListener('click', () => {
-                watchedFoldersContent.classList.toggle('hidden');
-                watchedFoldersToggleIcon.classList.toggle('fa-chevron-down');
-                watchedFoldersToggleIcon.classList.toggle('fa-chevron-up');
+            // Force styles to ensure clickability
+            watchedFoldersToggle.style.cursor = 'pointer';
+            watchedFoldersToggle.style.userSelect = 'none';
+            
+            // Add click listener with more aggressive event handling
+            watchedFoldersToggle.addEventListener('click', function(event) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                
+                const isHidden = watchedFoldersContent.classList.contains('hidden');
+                
+                // Toggle with force
+                if (isHidden) {
+                    watchedFoldersContent.classList.remove('hidden');
+                    watchedFoldersToggleIcon.classList.remove('bi-chevron-up');
+                    watchedFoldersToggleIcon.classList.add('bi-chevron-down');
+                } else {
+                    watchedFoldersContent.classList.add('hidden');
+                    watchedFoldersToggleIcon.classList.remove('bi-chevron-down');
+                    watchedFoldersToggleIcon.classList.add('bi-chevron-up');
+                }
             });
-        }
+        } 
     }
 };
 
@@ -1276,47 +1395,40 @@ const FolderManager = {
                     const iconColor = folder.status === 'Active' ? 
                         'text-indigo-500' : 'text-gray-500';
                     
+                    // In the loadWatchedFolders function, update the button:
                     row.innerHTML = `
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium ${folder.is_excluded ? 'text-gray-500' : 'text-gray-900'}">
-                            <i class="fas fa-folder mr-2 ${iconColor}"></i>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium ${folder.to_backup ? 'text-gray-500' : 'text-gray-900'}">
+                            <i class="bi bi-folder-fill mr-2 ${iconColor}"></i>
                             ${folder.name}
+                            ${folder.to_backup ? '<span class="text-xs text-red-500 ml-2">(Excluded)</span>' : ''}
                         </td>
                         <td class="px-4 py-2 whitespace-nowrap">
                             <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}">
                                 ${folder.status}
                             </span>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm ${folder.is_excluded ? 'text-gray-400' : 'text-gray-500'}">
+                        <td class="px-6 py-4 whitespace-nowrap text-sm ${folder.to_backup ? 'text-gray-400' : 'text-gray-500'}">
                             ${lastActivity.toLocaleTimeString()} ${lastActivity.toLocaleDateString()}
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                             ${excludedCount > 0 ? `
-                                <button onclick="FolderManager.showExclusions(${JSON.stringify(folder.excluded_subfolders)})" 
+                                <button onclick="FolderManager.showExclusions(${JSON.stringify(folder.excluded_subfolders).replace(/"/g, '&quot;')})" 
                                         class="text-indigo-600 hover:text-indigo-900 mr-3"
-                                        title="Show excluded items">
-                                    ${''/*
-                                    <i class="fas fa-info-circle"></i>
-                                    */}
+                                        title="Open Location">
+                                    <i class="bi bi-info-circle"></i>
                                 </button>
                             ` : ''}
-                            <button onclick="FolderManager.folderInclusionExclusion('${folder.path}', ${!folder.is_excluded})"
-                                    class="${folder.is_excluded ? 'text-green-600 hover:text-green-900' : 'text-yellow-600 hover:text-yellow-900'} mr-3"
-                                    title="${folder.is_excluded ? 'Add it to be back up' : 'Remove it from br back up'}">
-                                <i class="fas ${folder.is_excluded ? 'fa-plus-circle' : 'fa-minus-circle'}"></i>
+                            <!-- Use folder.to_backup directly for the action -->
+                            <button onclick="FolderManager.folderInclusionExclusion('${folder.path}', ${folder.to_backup})"
+                                    class="${folder.to_backup ? 'text-green-600 hover:text-green-900' : 'text-yellow-600 hover:text-yellow-900'} mr-3"
+                                    title="${folder.to_backup ? 'Include in backup' : 'Exclude from backup'}">
+                                <i class="bi ${folder.to_backup ? 'bi-plus-circle-fill' : 'bi-dash-circle-fill'}"></i>
+                                ${folder.to_backup ? ' Include' : ' Exclude'}
                             </button>
-                            ${''/*
-                            <button onclick="FolderManager.showAddExclusion('${folder.path}')" class="text-gray-600 hover:text-gray-900" title="Add specific exclusions">
-                                <i class="fas fa-ellipsis-h"></i>
-                            </button>
-                            */}
                         </td>
                     `;
                     tableBody.appendChild(row);
                 });
-                // DESTINATION COLUMN 2 place
-                // <td class="px-4 py-2 whitespace-nowrap text-sm ${folder.is_excluded ? 'text-gray-400' : 'text-gray-500'}">
-                //     ${folder.is_excluded ? 'Not backed up' : folder.destination}
-                // </td>
             })
             .catch(error => {
                 console.error('Error loading watched folders:', error);
@@ -1331,7 +1443,14 @@ const FolderManager = {
     },
 
     // Handle Inclusion/Exclusion watched folders 
-    folderInclusionExclusion: (folderPath, is_excluded) => {
+    folderInclusionExclusion: (folderPath, toBeBackup) => {
+        // Disable the button and show loading state
+        const buttons = document.querySelectorAll(`button[onclick*="${folderPath}"]`);
+        buttons.forEach(button => {
+            button.disabled = true;
+            button.innerHTML = '<i class="bi bi-hourglass-split"></i> Updating...';
+        });
+
         fetch('/api/folders/handle_folder_include_exclude', {
             method: 'POST',
             headers: {
@@ -1339,19 +1458,27 @@ const FolderManager = {
             },
             body: JSON.stringify({
                 path: folderPath,
-                is_excluded: is_excluded
+                to_backup: toBeBackup
             })
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
+                // Reload the folder list to reflect the changes
                 FolderManager.loadWatchedFolders(); // Refresh the list
+                
+                // Show a success message
+                console.log('Folder status updated successfully');
             } else {
                 alert('Failed to update folder status: ' + (data.error || 'Unknown error'));
+                // Re-enable buttons on error
+                FolderManager.loadWatchedFolders();
             }
         })
         .catch(error => {
             alert('Error updating folder status: ' + error.message);
+            // Re-enable buttons on error
+            FolderManager.loadWatchedFolders();
         });
     },
     
@@ -1368,7 +1495,7 @@ const FolderManager = {
                         <h3 class="text-lg font-medium">Excluded Subfolders</h3>
                         <button onclick="document.getElementById('exclusionModal').classList.add('hidden')" 
                                 class="text-gray-500 hover:text-gray-700">
-                            <i class="fas fa-times"></i>
+                            <i class="bi bi-clock-fill"></i>
                         </button>
                     </div>
                     <div id="exclusionList" class="max-h-96 overflow-y-auto"></div>
@@ -1383,7 +1510,7 @@ const FolderManager = {
             <ul class="list-disc list-inside bg-gray-50 p-3 rounded-lg">
                 ${folders.map(f => `
                     <li class="py-1 text-gray-700">
-                        <i class="fas fa-folder-minus mr-2"></i>
+                        <i class="bi bi-folder-fill r-minus mr-2"></i>
                         ${f || '(root)'}
                     </li>
                 `).join('')}
@@ -1408,7 +1535,7 @@ const FolderManager = {
 						<h3 class="text-lg font-medium">Add Exclusion</h3>
 						<button onclick="document.getElementById('addExclusionModal').classList.add('hidden')" 
 								class="text-gray-500 hover:text-gray-700">
-							<i class="fas fa-times"></i>
+							<i class="bi bi-clock-fill"></i>
 						</button>
 					</div>
 					<div class="mb-4">
@@ -1480,7 +1607,7 @@ const FolderManager = {
 
 
 // =============================================
-// ACTIVITY MANAGER FOR DAEMON MESSAGES
+// ACTIVITY MANAGER FOR DAEMON MESSAGES (PERSISTENT)
 // =============================================
 const ActivityManager = {
     activities: [],
@@ -1489,10 +1616,155 @@ const ActivityManager = {
     messageCount: 0,
     
     init: function() {
+        this.loadPersistedActivities(); // Load from localStorage
         this.clearAllIntervals();
         this.setupAutoCleanup();
+        this.setupTimeUpdates(); // Auto-update timestamps
     },
     
+    // Load activities from localStorage
+    loadPersistedActivities: function() {
+        try {
+            const stored = localStorage.getItem('backupActivities');
+            if (stored) {
+                this.activities = JSON.parse(stored);
+                this.renderPersistedActivities();
+            }
+        } catch (error) {
+            console.error('Error loading persisted activities:', error);
+            this.activities = [];
+        }
+    },
+    
+    // Save activities to localStorage
+    savePersistedActivities: function() {
+        try {
+            // Only keep the most recent activities (respect MAX_LOG_ITEMS)
+            const activitiesToSave = this.activities.slice(-MAX_LOG_ITEMS);
+            localStorage.setItem('backupActivities', JSON.stringify(activitiesToSave));
+        } catch (error) {
+            console.error('Error saving activities:', error);
+        }
+    },
+    
+    // Render persisted activities on page load
+    renderPersistedActivities: function() {
+        const activityFeed = document.getElementById('activityFeed');
+        if (!activityFeed) return;
+        
+        activityFeed.innerHTML = '';
+        
+        // Sort by timestamp (newest first) and limit to MAX_LOG_ITEMS
+        const sortedActivities = [...this.activities]
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .slice(0, MAX_LOG_ITEMS);
+        
+        sortedActivities.forEach(activity => {
+            const item = this.createActivityHTML(activity);
+            activityFeed.appendChild(this.createElementFromHTML(item));
+        });
+        
+        this.updateAllTimestamps(); // Initial timestamp update
+    },
+    
+    // Create appropriate HTML based on activity type
+    createActivityHTML: function(activity) {
+        const timeAgo = this.formatTimeAgo(activity.timestamp);
+        
+        switch(activity.type) {
+            case 'analyzing':
+                return this.createAnalyzingHTML(activity);
+            case 'progress':
+                return this.createProgressHTML(activity);
+            case 'completed':
+                return this.createCompletedHTML(activity);
+            case 'warning':
+                return this.createWarningHTML(activity);
+            case 'info':
+                return this.createNewFolderHTML(activity);
+            case 'restore':
+                return this.createRestoreHTML(activity);
+            default:
+                return this.createGenericHTML(activity);
+        }
+    },
+    
+    // Get icon configuration based on activity type
+    getIconConfig: function(type) {
+        const configs = {
+            'completed': { bg: 'bg-green-100', text: 'text-green-600', icon: 'bi bi-check-circle' },
+            'warning': { bg: 'bg-yellow-100', text: 'text-yellow-600', icon: 'bi bi-exclamation-triangle-fill' },
+            'info': { bg: 'bg-purple-100', text: 'text-purple-600', icon: 'bi bi-folder-fill' },
+            'analyzing': { bg: 'bg-blue-100', text: 'text-blue-600', icon: 'bi bi-search' },
+            'progress': { bg: 'bg-indigo-100', text: 'text-indigo-600', icon: 'bi bi-copy' },
+            'default': { bg: 'bg-gray-100', text: 'text-gray-600', icon: 'bi bi-info-circle' }
+        };
+        
+        return configs[type] || configs.default;
+    },
+    
+    // Setup interval to update timestamps
+    setupTimeUpdates: function() {
+        // Update timestamps every minute
+        this.intervals.timeUpdate = setInterval(() => {
+            this.updateAllTimestamps();
+        }, 60000); // Every minute
+    },
+    
+    // Update all timestamp displays
+    updateAllTimestamps: function() {
+        document.querySelectorAll('[data-time-ago]').forEach(element => {
+            const timestamp = element.getAttribute('data-time-ago');
+            element.textContent = this.formatTimeAgo(timestamp);
+        });
+    },
+    
+    // Add activity with persistence
+    addPersistedActivity: function(message) {
+        // Create activity object
+        const activity = {
+            type: message.type,
+            title: message.title,
+            description: message.description,
+            timestamp: message.timestamp || new Date().toISOString(),
+            // Include any additional data needed for specific types
+            ...(message.progress !== undefined && { progress: message.progress }),
+            ...(message.processed !== undefined && { processed: message.processed }),
+            ...(message.eta !== undefined && { eta: message.eta })
+        };
+        
+        // Add to activities array
+        this.activities.push(activity);
+        
+        // Limit the total number of stored activities
+        if (this.activities.length > MAX_LOG_ITEMS * 2) { // Keep some buffer
+            this.activities = this.activities.slice(-MAX_LOG_ITEMS);
+        }
+        
+        // Save to localStorage
+        this.savePersistedActivities();
+        
+        // Render immediately if this is a new activity
+        if (!message.isPersisted) {
+            this.renderNewActivity(activity);
+        }
+    },
+    
+    // Render a single new activity
+    renderNewActivity: function(activity) {
+        const activityFeed = document.getElementById('activityFeed');
+        if (!activityFeed) return;
+        
+        const item = this.createActivityHTML(activity);
+        activityFeed.insertBefore(
+            this.createElementFromHTML(item), 
+            activityFeed.firstChild
+        );
+        
+        this.limitActivityFeed();
+        this.updateAllTimestamps();
+    },
+
     clearAllIntervals: function() {
         Object.values(this.intervals).forEach(interval => {
             if (interval) clearInterval(interval);
@@ -1509,18 +1781,22 @@ const ActivityManager = {
 
     cleanupOldActivities: function() {
         const now = new Date();
-        const oneDayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+        const oneWeekAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000)); // Keep for 1 week
         
-        // Remove activities older than 24 hours
+        // Remove activities older than 1 week
+        const initialCount = this.activities.length;
         this.activities = this.activities.filter(activity => 
-            new Date(activity.timestamp) > oneDayAgo
+            new Date(activity.timestamp) > oneWeekAgo
         );
         
-        this.renderActivities();
+        if (this.activities.length !== initialCount) {
+            this.savePersistedActivities();
+            this.renderPersistedActivities();
+        }
     },
 
-    // Analyzing Activities
-    updateAnalyzingActivity(message) {
+    // Analyzing Activities (non-persistent until complete)
+    updateAnalyzingActivity: function(message) {
         let analyzingItem = document.querySelector('.activity-item[data-type="analyzing"]');
         
         if (!analyzingItem) {
@@ -1533,8 +1809,8 @@ const ActivityManager = {
         }
     },
     
-    // Progress Activities
-    updateBackupProgress(message) {
+    // Progress Activities (non-persistent until complete)
+    updateBackupProgress: function(message) {
         let progressItem = document.querySelector('.activity-item[data-type="progress"]');
         
         if (!progressItem) {
@@ -1548,41 +1824,67 @@ const ActivityManager = {
         }
     },
 
-    // Completion activity
-    addCompletedActivity(message) {
-        const item = this.createElementFromHTML(this.createCompletedHTML(message));
-        document.getElementById('activityFeed').prepend(item);
-        this.limitActivityFeed();  // Limit number of activities
+    // Completion activity (persistent)
+    addCompletedActivity: function(message) {
+        this.addPersistedActivity({
+            type: 'completed',
+            title: message.title,
+            description: message.description,
+            timestamp: message.timestamp || new Date().toISOString()
+        });
     },
 
-    // Warning activity
-    addWarningActivity(message) {
-        const item = this.createElementFromHTML(this.createWarningHTML(message));
-        document.getElementById('activityFeed').prepend(item);
-        this.limitActivityFeed();  // Limit number of activities
+    // Warning activity (persistent)
+    addWarningActivity: function(message) {
+        this.addPersistedActivity({
+            type: 'warning',
+            title: message.title,
+            description: message.description,
+            timestamp: message.timestamp || new Date().toISOString()
+        });
     },
 
-    // New folder activity
-    addNewFolderActivity(message) {
-        const item = this.createElementFromHTML(this.createNewFolderHTML(message));
-        document.getElementById('activityFeed').prepend(item);
-        this.limitActivityFeed();  // Limit number of activities
+    // New folder activity (persistent)
+    addNewFolderActivity: function(message) {
+        this.addPersistedActivity({
+            type: 'info',
+            title: message.title,
+            description: message.description,
+            timestamp: message.timestamp || new Date().toISOString()
+        });
     },
 
     // Render all activities
-    createElementFromHTML(htmlString) {
+    createElementFromHTML: function(htmlString) {
         const div = document.createElement('div');
         div.innerHTML = htmlString.trim();
         return div.firstChild;
     },
+    
+    // Generic activity HTML for persisted items
+    createGenericHTML: function(activity) {
+        const timeAgo = this.formatTimeAgo(activity.timestamp);
+        
+        return `
+            <div class="flex items-start activity-item" data-timestamp="${activity.timestamp}">
+                <div class="${iconConfig.bg} ${iconConfig.text} p-2 rounded-full mr-3">
+                    <i class="${iconConfig.icon} text-sm"></i>
+                </div>
+                <div class="flex-1">
+                    <div class="text-sm font-medium">${activity.title}</div>
+                    <div class="text-xs text-gray-500 mt-1">${activity.description}</div>
+                    <div class="text-xs text-gray-400 mt-1">${timeAgo}</div>
+                </div>
+            </div>
+        `;
+    },
 
-    // Create analyzing html
-    createAnalyzingHTML(message) {
+    createAnalyzingHTML: function(message) {
         const timeAgo = this.formatTimeAgo(message.timestamp);
         return `
-            <div class="flex items-start activity-item" data-type="analyzing">
+            <div class="flex items-start activity-item" data-type="analyzing" data-timestamp="${message.timestamp}">
                 <div class="bg-blue-100 text-blue-600 p-2 rounded-full mr-3">
-                    <i class="fas fa-search text-sm"></i>
+                    <i class="bi bi-search text-sm"></i>
                 </div>
                 <div class="flex-1">
                     <div class="text-sm font-medium">${message.title}</div>
@@ -1591,18 +1893,18 @@ const ActivityManager = {
                         <div class="bg-blue-500 h-1 rounded-full analyzing-progress" style="width: ${message.progress}%"></div>
                     </div>
                     <div class="text-xs text-gray-400 mt-1 analyzing-count">${message.processed} files processed</div>
+                    <div class="text-xs text-gray-400 mt-1">${timeAgo}</div>
                 </div>
             </div>
         `;
     },
 
-    // Create progress html
-    createProgressHTML(message) {
+    createProgressHTML: function(message) {
         const timeAgo = this.formatTimeAgo(message.timestamp);
         return `
-            <div class="flex items-start activity-item" data-type="progress">
+            <div class="flex items-start activity-item" data-type="progress" data-timestamp="${message.timestamp}">
                 <div class="bg-indigo-100 text-indigo-600 p-2 rounded-full mr-3">
-                    <i class="fas fa-copy text-sm"></i>
+                    <i class="bi bi-copy text-sm"></i>
                 </div>
                 <div class="flex-1">
                     <div class="text-sm font-medium">${message.title}</div>
@@ -1614,18 +1916,18 @@ const ActivityManager = {
                         <span class="progress-status">${message.progress}% completed</span>
                         <span class="progress-eta">${message.eta}</span>
                     </div>
+                    <div class="text-xs text-gray-400 mt-1">${timeAgo}</div>
                 </div>
             </div>
         `;
     },
 
-    // Create completed html
-    createCompletedHTML(message) {
+    createCompletedHTML: function(message) {
         const timeAgo = this.formatTimeAgo(message.timestamp);
         return `
-            <div class="flex items-start activity-item">
+            <div class="flex items-start activity-item" data-timestamp="${message.timestamp}">
                 <div class="bg-green-100 text-green-600 p-2 rounded-full mr-3">
-                    <i class="fas fa-check-circle text-sm"></i>
+                    <i class="bi bi-check-circle text-sm"></i>
                 </div>
                 <div class="flex-1">
                     <div class="text-sm font-medium">${message.title}</div>
@@ -1636,13 +1938,12 @@ const ActivityManager = {
         `;
     },
 
-    // Create warning html
-    createWarningHTML(message) {
+    createWarningHTML: function(message) {
         const timeAgo = this.formatTimeAgo(message.timestamp);
         return `
-            <div class="flex items-start activity-item">
+            <div class="flex items-start activity-item" data-timestamp="${message.timestamp}">
                 <div class="bg-yellow-100 text-yellow-600 p-2 rounded-full mr-3">
-                    <i class="fas fa-exclamation-triangle text-sm"></i>
+                    <i class="bi bi-exclamation-triangle-fill text-sm"></i>
                 </div>
                 <div class="flex-1">
                     <div class="text-sm font-medium">${message.title}</div>
@@ -1653,13 +1954,12 @@ const ActivityManager = {
         `;
     },
 
-    // Create new folder html
-    createNewFolderHTML(message) {
+    createNewFolderHTML: function(message) {
         const timeAgo = this.formatTimeAgo(message.timestamp);
         return `
-            <div class="flex items-start activity-item">
+            <div class="flex items-start activity-item" data-timestamp="${message.timestamp}">
                 <div class="bg-purple-100 text-purple-600 p-2 rounded-full mr-3">
-                    <i class="fas fa-folder-plus text-sm"></i>
+                    <i class="bi bi-folder-fill text-sm"></i>
                 </div>
                 <div class="flex-1">
                     <div class="text-sm font-medium">${message.title}</div>
@@ -1670,33 +1970,67 @@ const ActivityManager = {
         `;
     },
 
-    // Format time ago
-    formatTimeAgo(timestamp) {
-        const now = new Date();
-        const messageTime = new Date(timestamp);
-        const diffMs = now - messageTime;
-        const diffMins = Math.floor(diffMs / 60000);
-        const diffHours = Math.floor(diffMs / 3600000);
+    createRestoreHTML: function(activity) {
+        const timeAgo = this.formatTimeAgo(activity.timestamp);
+        return `
+            <div class="flex items-start activity-item" data-timestamp="${activity.timestamp}">
+                <div class="bg-green-100 text-green-600 p-2 rounded-full mr-3">
+                    <i class="bi bi-arrow-clockwise text-sm"></i>
+                </div>
+                <div class="flex-1">
+                    <div class="text-sm font-medium">${activity.title}</div>
+                    <div class="text-xs text-gray-500 mt-1">${activity.description}</div>
+                    <div class="text-xs text-gray-400 mt-1">${timeAgo}</div>
+                </div>
+            </div>
+        `;
+    },
 
-        if (diffMins < 1) return 'Just now';
-        if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
-        if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-        return `${Math.floor(diffHours / 24)} day${Math.floor(diffHours / 24) > 1 ? 's' : ''} ago`;
+    // Format time ago with auto-updating capability
+    formatTimeAgo: function(timestamp) {
+        try {
+            const now = new Date();
+            const messageTime = new Date(timestamp);
+            
+            if (isNaN(messageTime.getTime())) {
+                return 'Just now';
+            }
+            
+            const diffMs = now - messageTime;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffHours / 24);
+
+            if (diffMins < 1) return 'Just now';
+            if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+            if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+            
+            // For days only - no dates!
+            return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+            
+        } catch (error) {
+            return 'Just now';
+        }
     },
 
     // Update connection status
-    updateConnectionStatus(connected) {
+    updateConnectionStatus: function(connected) {
         const statusElement = document.getElementById('connectionStatus');
-        if (connected) {
-            statusElement.innerHTML = '<span class="text-green-300 mr-2">●</span><span>Connected</span>';
-        } else {
-            statusElement.innerHTML = '<span class="text-red-300 mr-2">●</span><span>Disconnected</span>';
+        if (statusElement) {
+            if (connected) {
+                statusElement.innerHTML = '<span class="text-green-300 mr-2">●</span><span>Connected</span>';
+            } else {
+                statusElement.innerHTML = '<span class="text-red-300 mr-2">●</span><span>Disconnected</span>';
+            }
         }
     },
 
     // Update last update
-    updateLastUpdate() {
-        document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+    updateLastUpdate: function() {
+        const lastUpdateElement = document.getElementById('lastUpdate');
+        if (lastUpdateElement) {
+            lastUpdateElement.textContent = new Date().toLocaleTimeString();
+        }
     },
 
     // Limit number of notification under Recents Activities
@@ -1727,8 +2061,33 @@ const ActivityManager = {
     clearAllActiveActivities: function() {
         this.clearAnalyzingActivity();
         this.clearProgressActivity();
+    },
+
+    // Clear all persisted activities (for debugging or user action)
+    clearAllPersistedActivities: function() {
+        this.activities = [];
+        localStorage.removeItem('backupActivities');
+        const activityFeed = document.getElementById('activityFeed');
+        if (activityFeed) {
+            activityFeed.innerHTML = '<div class="text-gray-500 py-4 text-center">No recent activities</div>';
+        }
+    },
+
+    // Get activity count
+    getActivityCount: function() {
+        return this.activities.length;
+    },
+
+    // Export activities (for debugging)
+    exportActivities: function() {
+        return JSON.stringify(this.activities, null, 2);
     }
 };
+
+// Clear all notification
+document.getElementById('clearActivityBtn').addEventListener('click', () => {
+    ActivityManager.clearAllPersistedActivities();
+});
 
 
 // =============================================
@@ -1852,7 +2211,7 @@ const DeviceSelection = {
         }
     },
 
-    // Handles the final confirmation and sends data to the server
+    // In DeviceSelection.handleConfirmSelection, after the device is successfully selected:
     handleConfirmSelection: async () => {
         const selectedDevice = appState.selectedDevice;
         if (!selectedDevice) {
@@ -1860,7 +2219,6 @@ const DeviceSelection = {
             return;
         }
 
-        // Prevent resubmission
         DeviceSelection.toggleConfirmButton(false);
         elements.confirmSelectionBtn.textContent = 'Saving...';
         
@@ -1868,7 +2226,6 @@ const DeviceSelection = {
             const response = await fetch('/api/backup/select-device', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                // Use the temporarily stored object
                 body: JSON.stringify({ device_info: selectedDevice }) 
             });
 
@@ -1877,11 +2234,23 @@ const DeviceSelection = {
             if (result.success) {
                 console.log('Device configured successfully:', result.path);
                 
-                // Chnage navigation view to Overview
+                // Clear search cache for new backup location
+                await fetch('/api/refresh-search-index', { method: 'POST' });
+                
+                // Refresh suggested files for new backup location
+                SuggestedFiles.load();
+                
+                // Clear any cached search results on frontend
+                window.latestSearchResults = null;
+                
+                // Change navigation view to Overview
                 Navigation.showSection('overview'); 
                 
                 // Clear the temporary state
                 appState.selectedDevice = null;
+                
+                console.log('Search cache and suggested files refreshed for new backup device');
+                
             } else {
                 console.error('Failed to select device:', result.error);
             }
@@ -1890,7 +2259,7 @@ const DeviceSelection = {
         } finally {
             elements.confirmSelectionBtn.textContent = 'Confirm Selection';
         }
-    }
+    },
 };
 
 
@@ -1941,7 +2310,7 @@ function handleVersionAction(action, versionKey) {
             restoreFile(filePath);
             break;
         case 'open':
-            openPathInExplorer(filePath); // Use openPathInExplorer for files too
+            openFileInDefaultApp(filePath); // Use openPathInExplorer for files too
             break;
         case 'open-location':
             openPathInExplorer(filePath.substring(0, filePath.lastIndexOf('/')));
@@ -1978,38 +2347,8 @@ async function selectFile(fileName) {
     // Get backup versions for this file
     getFileBackupVersions(fileObj);
 
-    // Select the latest version by default (latest datetime)
-    const versionsArr = Object.entries(fileObj.versions).map(([key, v]) => ({ key, ...v }));
-
-    // Sort by time descending (latest first)
-    versionsArr.sort((a, b) => {
-        let aTime = typeof a.time === 'number' ? a.time : parseVersionTime(a.time);
-        let bTime = typeof b.time === 'number' ? b.time : parseVersionTime(b.time);
-        return bTime - aTime;
-    });
-
-    // Auto-select the latest backup version of this file
-    if (versionsArr.length > 0) {
-        autoSelectLatestBackupVersion(versionsArr[0].key); // Select the latest version by datetime
-    }
-    
-    // Frontend: Load current file content
-    // Fetch file content from backend and display in currentFileContent
-    fetch(`/api/file-content?file_path=${encodeURIComponent(filePath)}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success && data.content !== undefined) {
-                currentFileContentElement.textContent = data.content;
-            } else if (data.metadata) {
-                currentFileContentElement.innerHTML = renderMetadataView(data.metadata);
-            } else {
-                currentFileContentElement.textContent = 'Unable to load file content.';
-            }
-        })
-        .catch(error => {
-            console.error('Error loading file content:', error);
-            currentFileContentElement.textContent = 'Error loading file content.';
-        });
+    // Auto-select the first available version (will handle .main_backup only case)
+    autoSelectLatestBackupVersion(); // No parameter = auto-select logic
 }
 
 /**
@@ -2032,6 +2371,9 @@ function getFileBackupVersions(fileObj) {
     });
 
     versionsArr.forEach(version => {
+        // Skip Current Version.
+        if (version.key === 'home') return;
+
         let formattedTime = version.time;
         if (typeof version.time === 'number') {
             const date = new Date(version.time * 1000);
@@ -2060,7 +2402,7 @@ function getFileBackupVersions(fileObj) {
         }
         const pillHtml = `
             <span data-version="${version.key}" class="version-pill px-3 py-1 text-xs font-medium rounded-full cursor-pointer shadow-sm whitespace-nowrap bg-gray-200 text-gray-700 hover:bg-gray-300">
-                <i class="fas fa-clock mr-1"></i> ${formattedTime}
+                <i class="bi bi-clock-fill mr-1"></i> ${formattedTime}
             </span>
         `;
         versionPillsContainer.insertAdjacentHTML('beforeend', pillHtml);
@@ -2083,19 +2425,31 @@ function parseVersionTime(str) {
  */
 function renderMetadataView(metadata) {
     console.log('Rendering metadata view:', metadata);
-    const { iconClass, iconColor } = getFileIconDetails(metadata.path);
+    const { iconClass, iconColor } = getFileIconDetails(metadata.path || metadata.name);
+    const fileName = metadata.path ? metadata.path.split('/').pop() : 'Unknown file';
+    
+    // Format size properly
+    let sizeDisplay = 'Unknown size';
+    if (metadata.size) {
+        if (typeof metadata.size === 'string' && metadata.size.includes('bytes')) {
+            // Convert "191304234 bytes" to formatted size
+            const sizeBytes = parseInt(metadata.size);
+            sizeDisplay = !isNaN(sizeBytes) ? Utils.formatBytes(sizeBytes) : metadata.size;
+        } else {
+            sizeDisplay = Utils.formatBytes(metadata.size);
+        }
+    }
 
     return `
         <div class="p-6 h-full flex flex-col items-center justify-center text-center text-gray-600 bg-white rounded-xl">
             <i class="${iconClass} text-5xl ${iconColor} mb-4"></i>
-            <p class="text-lg font-semibold mb-2">${metadata.name || currentFileKey}</p>
-            <p class="text-sm">This is a binary file (e.g., .blend, .svg, .zip). Textual content comparison is not available.</p>
+            <p class="text-lg font-semibold mb-2">${fileName}</p>
+            <p class="text-sm mb-4">This is a binary file. Textual content comparison is not available.</p>
             <div class="mt-4 p-3 bg-gray-50 rounded-lg w-full max-w-sm">
-                <p class="text-xs font-medium text-gray-700">Path: ${metadata.path || ''}</p>
-                <p class="text-xs font-medium text-gray-700">Modified: ${metadata.time || ''}</p>
-                <p class="text-xs font-medium text-gray-700">Size: ${Utils.formatBytes(metadata.size || 0)}</p>
+                ${metadata.path ? `<p class="text-xs font-medium text-gray-700 truncate">Path: ${metadata.path}</p>` : ''}
+                ${metadata.mtime ? `<p class="text-xs font-medium text-gray-700">Modified: ${metadata.mtime}</p>` : ''}
+                <p class="text-xs font-medium text-gray-700">Size: ${sizeDisplay}</p>
                 ${metadata.type ? `<p class="text-xs mt-1 italic">Type: ${metadata.type}</p>` : ''}
-                ${metadata.metadata ? `<p class="text-xs mt-1 italic">${metadata.metadata}</p>` : ''}
             </div>
         </div>
     `;
@@ -2106,6 +2460,19 @@ function renderMetadataView(metadata) {
 // <p class="text-xs font-medium text-gray-700">Size: ${Utils.formatBytes(metadata.size || 0)}</p>
 // ${metadata.type ? `<p class="text-xs mt-1 italic">Type: ${metadata.type}</p>` : ''}
 // ${metadata.metadata ? `<p class="text-xs mt-1 italic">${metadata.metadata}</p>` : ''}
+
+
+function styleDiffContent(content, isBackup = false) {
+    if (!content) return '';
+    
+    const lines = content.split('\n');
+    return lines.map(line => {
+        const escapedLine = line.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return `<div class="diff-line ${isBackup ? 'diff-line-backup' : 'diff-line-current'}">${escapedLine}</div>`;
+    }).join('');
+}
+
+
 
 /**
  * Switches the content displayed in the backup (right) pane for comparison.
@@ -2120,30 +2487,51 @@ function autoSelectLatestBackupVersion(versionKey) {
     }
     if (!fileObj || !fileObj.versions) return;
 
-    // Determine latest (current) version key
-    const latestVersionKey = Object.keys(fileObj.versions)[0];
-    const currentVersion = fileObj.versions[latestVersionKey];  // Will shows the user's current file content (From HOME)
-    const selectedVersion = fileObj.versions[versionKey];  // By default it will show the latest version first
+    // If no versionKey provided, auto-select the first available backup version
+    if (!versionKey) {
+        const availableVersions = Object.keys(fileObj.versions);
+        
+        // Try to find a non-home version first (backup versions)
+        const backupVersion = availableVersions.find(key => key !== 'home');
+        
+        // If no backup version found but we have home version, use that
+        if (!backupVersion && availableVersions.length > 0) {
+            versionKey = availableVersions[0]; // Use home version as fallback
+        } else {
+            versionKey = backupVersion;
+        }
+        
+        // If still no versionKey, return
+        if (!versionKey) return;
+    }
 
+    const selectedVersion = fileObj.versions[versionKey];
     if (!selectedVersion) return;
 
     currentBackupVersionKey = versionKey;
 
     // 1. Update the display times
-    currentHeaderSpan.textContent = currentVersion.time;
-    backupHeaderSpan.textContent = selectedVersion.time;
+    currentHeaderSpan.textContent = 'Current Version';
+    backupHeaderSpan.textContent = selectedVersion.time || 'Main Backup';
 
     // 2. Handle Content Display (Diff or Metadata)
     if (fileObj.type === 'text') {
-        currentFileContentElement.innerHTML = styleDiffContent(currentVersion.content, false); 
-        backupFileContentElement.innerHTML = styleDiffContent(selectedVersion.content, true);
+        // For text files, show content comparison
+        currentFileContentElement.innerHTML = styleDiffContent(
+            fileObj.versions.home?.content || 'No current version content', 
+            false
+        ); 
+        backupFileContentElement.innerHTML = styleDiffContent(
+            selectedVersion.content || 'No backup version content', 
+            true
+        );
     } else {
-        currentFileContentElement.innerHTML = renderMetadataView(currentVersion);  // This should actually show user's current file content (From HOME)
+        // For binary files, show metadata view
+        currentFileContentElement.innerHTML = renderMetadataView(
+            fileObj.versions.home || { path: currentFileKey, size: 0 }
+        );
         backupFileContentElement.innerHTML = renderMetadataView(selectedVersion);
     }
-
-    console.log('Current File Content:', currentFileContentElement);
-    console.log('Backup File Content:', backupFileContentElement);
 
     // 3. Update active pill CSS (Visual only)
     document.querySelectorAll('.version-pill').forEach(pill => {
@@ -2155,24 +2543,44 @@ function autoSelectLatestBackupVersion(versionKey) {
     if (activePill) {
         activePill.classList.remove('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300');
         activePill.classList.add('bg-indigo-600', 'text-white', 'shadow-md');
+    } else {
+        // If no pill exists (like for 'home' version), create a visual indicator
+        console.log(`No pill found for version: ${versionKey}`);
     }
 }
 
-function fetchFileVersions(filePath) {
-    return fetch(`/api/file-versions?file_path=${encodeURIComponent(filePath)}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success && data.versions) {
-                return data.versions;
-            } else {
-                console.error('Failed to fetch versions:', data.error);
-                return [];
-            }
-        })
-        .catch(error => {
-            console.error('Error fetching file versions:', error);
-            return [];
-        });
+
+/**
+ * /**
+ * Fetches file versions from the backend.
+ * @param {string} filePath - The path of the file to fetch versions for.
+ * @returns {Promise<Array>} A promise that resolves to an array of version objects.
+ */
+async function fetchFileVersions(filePath) {
+    try {
+        console.log('Fetching versions for:', filePath);
+        
+        const response = await fetch(`/api/file-versions?file_path=${encodeURIComponent(filePath)}`);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Server error: ${response.status} - ${errorText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to fetch file versions');
+        }
+        
+        console.log('Found versions:', data.versions);
+        return data.versions || [];
+        
+    } catch (error) {
+        console.error('Error fetching file versions:', error);
+        showNotification('Could not load file versions: ' + error.message, 'error');
+        return [];
+    }
 }
 
 
@@ -2193,8 +2601,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Adjust the delay (e.g., 500ms) as needed for your application's responsiveness
     const debouncedPerformSearch = debounce(performSearch, 500); 
 
-    if (this.searchInput) {
-        this.searchInput.addEventListener('input', (event) => {
+    if (elements.searchInput) {
+        elements.searchInput.addEventListener('input', (event) => {
             // Call the debounced function instead of the original directly
             debouncedPerformSearch(event.target.value);
             Navigation.showSection('files');
@@ -2230,6 +2638,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // 4. Open File Button Listener
     openFile.addEventListener('click', () => {
         // Get the full file path from the current file object
         let fileObj = null;
@@ -2260,36 +2669,10 @@ function initializeWebSocket() {
     try {
         globalSocket = new WebSocket(wsUrl);
         
-        // Check connection to socket
-        // globalSocket.addEventListener('open', (event) => {
-        //     ActivityManager.addCompletedActivity({
-        //         icon: 'link',
-        //         color: 'green',
-        //         title: 'Connected',
-        //         description: 'Connected to backup daemon',
-        //         timestamp: new Date(),
-        //         persistent: true
-        //     });
-        // });
-
         // Get ready to ge messages from daemon
         globalSocket.addEventListener('message', (event) => {
             UIMessageHandler.handleMessage(event.data);
         });
-
-        // globalSocket.addEventListener('close', (event) => {
-        //     ActivityManager.addCompletedActivity({
-        //         icon: 'unlink',
-        //         color: 'red',
-        //         title: 'Disconnected',
-        //         description: 'Lost connection to backup daemon',
-        //         timestamp: new Date(),
-        //         persistent: true
-        //     });
-            
-        //     // Attempt reconnect after 5 seconds
-        //     setTimeout(initializeWebSocket, 5000);
-        // });
 
         globalSocket.addEventListener('error', (error) => {
             console.error('❌ Global WebSocket error:', error);
@@ -2341,7 +2724,7 @@ const SuggestedFiles = {
                         fileItemDiv.className = 'flex items-center p-3 bg-gray-50 rounded-lg shadow-sm mb-4';
 
                         fileItemDiv.innerHTML = `
-                            <i class="fas fa-file-code text-blue-500 text-lg mr-3"></i>
+                            <i class="bi bi-file-code-fill text-blue-500 text-lg mr-3"></i>
                             <div class="flex-1">
                                 <div class="text-sm font-medium text-gray-800">${item.basename}</div>
                                 <div class="text-xs text-gray-500">${item.original_path}</div>
@@ -2354,9 +2737,8 @@ const SuggestedFiles = {
                         searchButton.addEventListener('click', (event) => {
                             const fileName = item.basename;
                             // const filePath = event.target.getAttribute('data-filepath');
-                            const searchInput = document.getElementById('searchInput');
-                            if (searchInput) {
-                                searchInput.value = fileName;
+                            if (elements.searchInput) {
+                                elements.searchInput.value = fileName;
                                 performSearch(fileName);  // Perform search
                                 Navigation.showSection('files');  // Switch to files section
                             }
@@ -2388,31 +2770,79 @@ const SuggestedFiles = {
 const UIMessageHandler = {
     handleMessage(data) {
         try {
-            const message = JSON.parse(data);
+            // Handle both string data (from WebSocket) and already parsed objects
+            const message = typeof data === 'string' ? JSON.parse(data) : data;
+
+            console.log('Processing message:', message); // Debug log
 
             switch(message.type) {
                 case 'analyzing':
-                    ActivityManager.updateAnalyzingActivity(message);
+                    ActivityManager.updateAnalyzingActivity({
+                        title: message.title || 'Analyzing Files',
+                        description: message.description || 'Scanning for changes...',
+                        progress: message.progress || 0,
+                        processed: message.processed || 0,
+                        timestamp: message.timestamp || new Date().toISOString()
+                    });
                     break;
+                    
                 case 'progress':
-                    ActivityManager.updateBackupProgress(message);
+                    ActivityManager.updateBackupProgress({
+                        title: message.title || 'Backup in Progress',
+                        description: message.description || 'Copying files...',
+                        progress: message.progress || 0,
+                        eta: message.eta || 'Calculating...',
+                        timestamp: message.timestamp || new Date().toISOString()
+                    });
                     break;
-                case 'completed':
+                    
+                    case 'scan_completed':
                     // CLEAR ACTIVE STATES FIRST
                     ActivityManager.clearAnalyzingActivity();
+                    
+                    ActivityManager.addPersistedActivity({
+                        type: 'info',
+                        title: message.title || 'Scan Completed',
+                        description: message.description || 'File scan finished',
+                        timestamp: message.timestamp || new Date().toISOString()
+                    });
+                    break;
+
+                case 'completed':
+                    // CLEAR ACTIVE STATES FIRST
                     ActivityManager.clearProgressActivity();
-                    ActivityManager.addCompletedActivity(message);
+                    ActivityManager.clearAnalyzingActivity();
+                    
+                    // Add completed activity with proper structure
+                    ActivityManager.addCompletedActivity({
+                        title: message.title || 'Backup Completed',
+                        description: message.description || 'All files backed up successfully',
+                        timestamp: message.timestamp || new Date().toISOString()
+                    });
                     break;
+                    
                 case 'warning':
-                    ActivityManager.addWarningActivity(message);
+                    ActivityManager.addWarningActivity({
+                        title: message.title || 'Warning',
+                        description: message.description || 'A warning occurred during backup',
+                        timestamp: message.timestamp || new Date().toISOString()
+                    });
                     break;
+                    
                 case 'info':
-                    ActivityManager.addNewFolderActivity(message);
+                    ActivityManager.addNewFolderActivity({
+                        title: message.title || 'New Activity',
+                        description: message.description || 'Backup activity detected',
+                        timestamp: message.timestamp || new Date().toISOString()
+                    });
                     break;
+                    
+                default:
+                    console.log('Unhandled message type:', message.type);
             }
         } catch (e) {
-            console.log(message);
-            console.error('❌ Error parsing WebSocket message:', e);
+            console.error('❌ Error processing WebSocket message:', e);
+            console.log('Raw message that caused error:', data);
         }
     }
 };
@@ -2532,6 +2962,14 @@ const SEARCH_DEBOUNCE_DELAY = 500; // milliseconds
  * @param {string} query The search query string.
  */
 function performSearch(query) {
+    if (!query || query.trim() === '') {
+        // Don't search empty queries
+        if (fileListContainer) {
+            fileListContainer.innerHTML = '<p class="text-gray-500 p-3">Enter a search term to find files.</p>';
+        }
+        return;
+    }
+    
     console.log('Query being sent to API:', query); 
     fetch(`/api/search?query=${encodeURIComponent(query)}`)
         .then(response => response.json())
@@ -2547,11 +2985,11 @@ function performSearch(query) {
             // Clear previous results
             fileListContainer.innerHTML = '';
 
-            // Track added files to prevent duplicates
-            const addedFiles = new Set();
-
             // Console log results for debugging
             console.log('Search results received from API:', data.files);
+
+            // Track added files to prevent duplicates
+            const addedFiles = new Set();
 
             // Populate with new results
             if (data.files && data.files.length > 0) {
@@ -2588,7 +3026,6 @@ function performSearch(query) {
         })
         .catch(error => {
             console.error('Error fetching search results:', error);
-            const fileListContainer = document.getElementById('file-list-container');
             if (fileListContainer) {
                 fileListContainer.innerHTML = '<p class="text-red-500 p-3">An error occurred while loading files.</p>';
             }
@@ -2623,17 +3060,10 @@ function openFileInDefaultApp(filePath) {
         return;
     }
 
-    // You can add a confirmation dialog here if desired
-    // if (!confirm(`Are you sure you want to open this file?\n\n${filePath}`)) {
-    //     return;
-    // }
-
     // Make an API call to a NEW backend endpoint for opening files
     fetch('/api/open-file', { // Changed endpoint here
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json', },
         body: JSON.stringify({ file_path: filePath }) // Changed key name for clarity
     })
     .then(Utils.handleResponse) // Re-use your existing response handler
@@ -2750,12 +3180,13 @@ function showDiff(filePath) {
 }
 
 /**
- * Sends a request to the backend to restore the specified path .
- * @param {string} path The file or directory path to restore.
+ * Sends a request to the backend to restore the specified file.
+ * @param {string} path The file path to restore.
+ * @param {boolean} restoreFile Flag indicating this is a restore operation.
  */
 function restoreFile(path, restoreFile) {
     if (!path) {
-        console.warn("No path provided to openPathInExplorer.");
+        console.warn("No path provided to restore.");
         return;
     }
 
@@ -2767,20 +3198,18 @@ function restoreFile(path, restoreFile) {
         },
         body: JSON.stringify({ file_path: path })
     })
-    .then(Utils.handleResponse) // Re-use your existing response handler
+    .then(Utils.handleResponse)
     .then(data => {
         if (data && data.success) {
-            console.log(`Successfully requested to open path: ${path}`);
-            /*alert('Location opened successfully!');*/ // Simple alert for demonstration
+            Navigation.showSection('overview');  // Change to Overview page
+            console.log(`Successfully requested to restore file: ${path}`);
         } else {
             const errorMsg = data ? data.error : 'Unknown error';
-            console.error(`Failed to open path ${path}: ${errorMsg}`);
-            /*alert(`Failed to open location: ${errorMsg}`);*/
+            console.error(`Failed to restore file ${path}: ${errorMsg}`);
         }
     })
     .catch(error => {
-        console.error('Network error or API error when trying to open path:', error);
-        alert(`Error connecting to server to open location: ${error.message}`);
+        console.error('Network error or API error when trying to restore file:', error);
     });
 }
 
@@ -2789,7 +3218,7 @@ function restoreFile(path, restoreFile) {
 // =============================================
 const App = {
     init: () => {
-        AppState.intervals = {};
+        appState.intervals = {};
         
         Navigation.setup();
         UIControls.setup();
@@ -2797,7 +3226,10 @@ const App = {
         UIControls.setupToggles();
         DiffManager.setupModalControls();
         
-        // Initial data loading - now everything comes from one API call
+        // Initialize ActivityManager FIRST to load persisted activities
+        ActivityManager.init();
+        
+        // Then load other data
         BackupManager.updateUsage();
         DeviceManager.load();
         LogManager.load();
@@ -2806,20 +3238,22 @@ const App = {
         SuggestedFiles.setup(); 
         
         // Interval to update UI
-        AppState.intervals.storage = setInterval(BackupManager.updateUsage, 2000);  // Update every 2 seconds
+        appState.intervals.storage = setInterval(BackupManager.updateUsage, 2000);
 
         DiffManager.init();
         DeviceSelection.init();
     },
 
-        cleanup: () => {
-            if (AppState && AppState.intervals) {
-                Object.values(AppState.intervals).forEach(interval => {
-                    if (interval) clearInterval(interval);
-                });
-            }
-        },
-    };
+    cleanup: () => {
+        if (AppState && appState.intervals) {
+            Object.values(appState.intervals).forEach(interval => {
+                if (interval) clearInterval(interval);
+            });
+        }
+        // Also clear ActivityManager intervals
+        ActivityManager.clearAllIntervals();
+    },
+};
 
 // Start the application when DOM is ready
 document.addEventListener('DOMContentLoaded', () => App.init());
@@ -2832,15 +3266,9 @@ socket.addEventListener('open', (event) => {
     console.log('WebSocket connection established.');
 });
 
-socket.addEventListener('message', (event) => {
-    UIMessageHandler.handleMessage(event.data);
-});
-
 socket.addEventListener('close', (event) => {
     console.log('WebSocket connection closed.');
 });
 
-
 // Clean up on page unload
-
 window.addEventListener('beforeunload', App.cleanup);

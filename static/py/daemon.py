@@ -182,6 +182,7 @@ def calculate_sha256(file_path: str, chunk_size: int = 65536) -> str:
         logging.error(f"Failed to hash file {file_path}: {e}")
         return ""
 
+
 # =============================================================================
 # DAEMON LOGIC
 # =============================================================================
@@ -189,7 +190,7 @@ class Daemon:
     def __init__(self):
         # Normalize source_root to a canonical absolute path to avoid relpath inconsistencies
         # self.users_home_dir = os.path.normpath(os.path.expanduser("~"))
-        self.users_home_dir = os.path.expanduser("~") + "/Downloads"  # Main backup root path
+        self.users_home_dir = os.path.expanduser("~") + "/Pictures"  # Main backup root path
         self.app_main_backup_dir = server.app_main_backup_dir()  # Main backup root path
         self.app_incremental_backup_dir = server.app_incremental_backup_dir()  # Current incremental backup path
         self.max_threads =  4  # Max threads for I/O
@@ -320,83 +321,81 @@ class Daemon:
     async def _check_backup_errors(self) -> bool:
         """
         Asynchronously verify connection and write permissions for the backup target.
-        If the target is not ready, it will wait and retry.
         Returns True if ready, False if the check was cancelled.
         """
         logging.info("Performing initial check for backup location...")
 
         while True:
             try:
-                # Ensure backup target is connected
+                # Check 1: Verify backup target is connected
                 if not server.has_driver_connection(self.app_main_backup_dir):
-                    logging.critical(f"Backup target not connected or inaccessible: {self.app_main_backup_dir}")
-                    raise OSError("Backup target not connected")
+                    logging.critical(f"Backup target not connected: {self.app_main_backup_dir}")
+                    await self.message_sender.send_warning("Backup device not connected.")
+                    await asyncio.sleep(30)
+                    continue
 
-                # Ensure backup root exists (mkdirs may fail on read-only)
-                os.makedirs(self.app_main_backup_dir, exist_ok=True)
-
-                # Test if the filesystem is read-only
-                test_dir = os.path.join(self.app_main_backup_dir, '.perm_test')
-                test_file = os.path.join(test_dir, f'.perm_{os.getpid()}')
-                
+                # Check 2: Ensure backup directory exists
                 try:
-                    os.makedirs(test_dir, exist_ok=True)
-                    
-                    # Try to create and write to a test file
-                    with open(test_file, 'w', encoding='utf-8') as fh:
-                        fh.write('perm-check')
-                    
-                    # Try to read back
-                    with open(test_file, 'r', encoding='utf-8') as fh:
-                        content = fh.read()
-                    
-                    # Try to delete the test file
-                    os.remove(test_file)
-                    
-                    # Try to remove the test directory
-                    try:
-                        os.rmdir(test_dir)
-                    except OSError:
-                        # Directory might not be empty, that's OK
-                        pass
-                        
-                    logging.debug(f"Backup permissions OK for {self.app_main_backup_dir}")
-                    return True # Success, exit the loop
-                    
+                    os.makedirs(self.app_main_backup_dir, exist_ok=True)
                 except OSError as e:
                     if e.errno == errno.EROFS:
-                        # Read-only file system detected
                         logging.critical(f"Backup target is READ-ONLY: {self.app_main_backup_dir}")
-                        await self.message_sender.send_warning("Backup device is read-only. Please check the device.")
-                        # Wait longer and retry since this is a critical issue
-                        logging.info("Waiting 60 seconds before retrying read-only filesystem...")
-                        await asyncio.sleep(60)
+                        await self.message_sender.send_warning("Backup device is read-only.")
+                        await asyncio.sleep(30)
                         continue
                     else:
                         raise
 
-            except OSError as e:
-                if e.errno in (errno.EROFS, errno.EACCES, errno.EPERM):
-                    logging.critical(f"Backup target not writable (read-only or permission denied): {self.app_main_backup_dir} ({e})")
-                    await self.message_sender.send_warning("Backup device is read-only or not writable.")
-                else:
-                    logging.error(f"Error testing backup permissions at {self.app_main_backup_dir}: {e}")
-                
-                # Wait before retrying
-                logging.info("Backup location not ready. Waiting for 30 seconds before retrying...")
-                try:
-                    await asyncio.sleep(30)
-                except asyncio.CancelledError:
-                    return False
-                    
+                # Check 3: Test write permissions
+                if await self._test_backup_permissions():
+                    logging.debug(f"Backup permissions OK for {self.app_main_backup_dir}")
+                    return True
+
+                # If we get here, permissions test failed
+                logging.info("Backup location not ready. Waiting 30 seconds before retrying...")
+                await asyncio.sleep(30)
+
+            except asyncio.CancelledError:
+                return False
             except Exception as e:
                 logging.error(f"Unexpected error during backup check: {e}")
-                # Wait before retrying
-                logging.info("Backup location not ready. Waiting for 30 seconds before retrying...")
-                try:
-                    await asyncio.sleep(30)
-                except asyncio.CancelledError:
+                await asyncio.sleep(30)
+
+    async def _test_backup_permissions(self) -> bool:
+        """Test if backup location is writable."""
+        test_dir = os.path.join(self.app_main_backup_dir, '.perm_test')
+        test_file = os.path.join(test_dir, f'.perm_{os.getpid()}')
+        
+        try:
+            # Create test directory
+            os.makedirs(test_dir, exist_ok=True)
+            
+            # Test write
+            with open(test_file, 'w', encoding='utf-8') as fh:
+                fh.write('perm-check')
+            
+            # Test read
+            with open(test_file, 'r', encoding='utf-8') as fh:
+                if fh.read() != 'perm-check':
                     return False
+            
+            # Cleanup
+            os.remove(test_file)
+            try:
+                os.rmdir(test_dir)
+            except OSError:
+                pass  # Directory not empty - acceptable
+                
+            return True
+            
+        except OSError as e:
+            if e.errno == errno.EROFS:
+                logging.critical(f"Backup target is READ-ONLY: {self.app_main_backup_dir}")
+                await self.message_sender.send_warning("Backup device is read-only.")
+            return False
+        except Exception as e:
+            logging.error(f"Permission test failed: {e}")
+            return False
         
     def _load_metadata(self):
         """Loads metadata from the backup path."""
@@ -409,6 +408,7 @@ class Daemon:
             except Exception:
                 nkey = key
             normalized[nkey] = val
+
         self.metadata = normalized
         self.hash_to_path_map = {
             file_data.get('hash'): file_data.get('path')
@@ -502,24 +502,25 @@ class Daemon:
 
     async def _pre_flight_scan(self):
         """
-        Scans source path to determine which files need updating/copying and 
-        calculates the total required transfer size.
+        Scans source path to determine which files need updating/copying.
+        Returns True if files need backup, False if nothing to do.
         """
-        self._load_exclusion_rules()  # Load exclusion settings for this run
-        self._load_metadata()     # Load existing metadata
-        self.files_to_backup = []  # Reset files to backup list
-        self.total_transfer_size = 0  # Reset total transfer size
+        self._load_exclusion_rules()
+        self._load_metadata()
+        self.files_to_backup = []
+        self.total_transfer_size = 0
         
         files_scanned = 0
+        files_need_backup = 0
         
         logging.info(f"Starting pre-flight scan of folders: {self.users_home_dir}")
         
-        # Send analyzing messages
-        await self.message_sender.send_analyzing(
-            "Starting file scan...", 
-            processed=0,
-            progress=0
-        )
+        # # Send analyzing message only if we're actually scanning
+        # await self.message_sender.send_analyzing(
+        #     "Starting file scan...", 
+        #     processed=0,
+        #     progress=0
+        # )
 
         # Track files found in current scan to detect deletions/moves
         current_files_found = set()
@@ -543,12 +544,6 @@ class Daemon:
                 folder_name_base = os.path.basename(self.users_home_dir)  # "Pictures"
                 file_rel_path = os.path.relpath(source_path, self.users_home_dir)
                 rel_path = os.path.join(folder_name_base, file_rel_path)  # "Pictures/Screenshots/file.png"
-
-                # DEBUG: Log the path construction
-                logging.debug(f"File: {file_name}")
-                logging.debug(f"  Source: {source_path}")
-                logging.debug(f"  Relative from home: {rel_path}")
-                logging.debug(f"  Expected dest: {os.path.join(self.app_main_backup_dir, rel_path)}")
 
                 # Exclusion check
                 if self._should_exclude(source_path):
@@ -614,6 +609,8 @@ class Daemon:
                         # Only count size for files that need a true copy (not hardlinks)
                         if not is_hardlink_candidate:
                             self.total_transfer_size += file_size
+                        
+                        files_need_backup += 1
                     else:
                         logging.debug(f"File skipped (mtime unchanged): {rel_path}")
 
@@ -622,39 +619,55 @@ class Daemon:
                 except Exception as e:
                     logging.error(f"Error processing file {source_path} during scan: {e}")
 
-        # --- DETECT MOVED/RENAMED FILES ---
+        # --- HANDLE FILES MISSING FROM SOURCE ---
         # Compare current files with metadata to find files that no longer exist in source
         metadata_files = set(self.metadata.keys())
-        deleted_or_moved_files = metadata_files - current_files_found
-        
-        if deleted_or_moved_files:
-            logging.info(f"Found {len(deleted_or_moved_files)} files that may have been moved or deleted")
+        files_missing_from_source = metadata_files - current_files_found
+
+        if files_missing_from_source:
+            # Build a map of hash -> current file paths for move/rename detection
+            current_hash_to_paths = {}
+            for file_info in self.files_to_backup:
+                file_hash = file_info.get('file_hash')
+                rel_path = file_info.get('rel_path')
+                if file_hash and rel_path:
+                    if file_hash not in current_hash_to_paths:
+                        current_hash_to_paths[file_hash] = []
+                    current_hash_to_paths[file_hash].append(rel_path)
             
-            # For each "missing" file, check if its content exists elsewhere (moved)
-            for missing_rel_path in deleted_or_moved_files:
+            # For each file missing from source, check if it was moved/renamed vs actually deleted
+            for missing_rel_path in files_missing_from_source:
                 missing_metadata = self.metadata.get(missing_rel_path, {})
                 missing_hash = missing_metadata.get('hash')
                 
-                if missing_hash and missing_hash in self.hash_to_path_map:
-                    # The content still exists somewhere, this was likely a move
-                    current_location = self.hash_to_path_map[missing_hash]
-                    if current_location != missing_rel_path:
-                        logging.info(f"File moved: {missing_rel_path} -> {current_location}")
-                        # We don't need to backup again since content is already there
-                    else:
-                        # File was actually deleted
-                        logging.info(f"File deleted from source: {missing_rel_path}")
-                        # You might want to handle deletions here
+                if missing_hash and missing_hash in current_hash_to_paths:
+                    # The same content exists in current scan - this is a move/rename!
+                    current_locations = current_hash_to_paths[missing_hash]
+                    for current_location in current_locations:
+                        if current_location != missing_rel_path:
+                            logging.info(f"File moved/renamed: {missing_rel_path} -> {current_location}")
+                            # Update metadata to reflect new location
+                            if current_location not in self.metadata:
+                                self.metadata[current_location] = missing_metadata.copy()
+                                self.metadata[current_location]['path'] = os.path.join(
+                                    self.app_main_backup_dir, current_location
+                                )
+                            # Keep the old metadata entry for now (or remove it if you prefer)
+                            # The backup file remains safe in both locations
 
-        logging.info(f"Scan complete. Total files to process: {len(self.files_to_backup)}, Total copy size: {self.total_transfer_size / (1024**3):.2f} GB")
+        logging.info(f"Scan complete. Files needing backup: {len(self.files_to_backup)}, Total copy size: {self.total_transfer_size / (1024**3):.2f} GB")
         
         self.total_files_to_transfer = len(self.files_to_backup)
         
-        await self.message_sender.send_analyzing(  # Final update
-            "File scan completed", 
-            processed=files_scanned,
-            progress=100
-        )
+        # Send appropriate completion message based on whether we found files to backup
+        if len(self.files_to_backup) > 0:
+            await self.message_sender.send_scan_completed(f"Found {len(self.files_to_backup)} files to backup")
+            logging.info(f"Files require backup: {len(self.files_to_backup)} files")
+            return True
+        else:
+            await self.message_sender.send_scan_completed("No files need backup - all files are up to date")
+            logging.info("No files require backup - all files are up to date")
+            return False
 
     def _check_disk_space(self) -> bool:
         """Checks if the backup destination has enough space."""
@@ -748,16 +761,6 @@ class Daemon:
             logging.warning(f"Unexpected error creating hardlink {dest_path}: {e}")
             return False
         
-    async def process_large_file(self, file_path: str, file_size: int):
-        """Send warning for large files."""
-        size_gb = file_size / (1024**3)  # GB
-
-        if size_gb < 1024**3: # 1GB
-            return
-
-        file_name = os.path.basename(file_path)
-        await self.message_sender.send_warning(f"Large file detected: {file_name} ({size_gb:.1f}GB)")
-
     def _perform_atomic_copy(self, src_path: str, final_dst_path: str, file_hash: str | None = None, file_size: int | None = None):
         """
         Performs a file copy to a temporary path and then atomically renames it.
@@ -1002,8 +1005,8 @@ class Daemon:
         # This is a simplified version
         return True  # You'll need to implement proper tracking
     
-    def process_file(self, file_info: dict) -> bool:
-        """Process a single file (copy or hardlink) - SYNCHRONOUS VERSION"""
+    async def process_file(self, file_info: dict) -> bool:
+        """Process a single file (copy or hardlink) - ASYNC VERSION"""
         if self.cancel_event.is_set():
             return False
 
@@ -1020,111 +1023,75 @@ class Daemon:
         # Calculate ETA
         eta = self._calculate_eta()
         
-        # Send progress update - use synchronous approach
+        # Send progress update - ASYNC
         try:
-            def _truncate_path(path: str, max_len: int = 25) -> str:
+            def _truncate_path(path: str, max_len: int = 35) -> str:
                 if len(path) <= max_len:
                     return path
                 return "..." + path[-(max_len - 3):]
             
             display_path = _truncate_path(rel_path)
-
-            # Use the synchronous helper function directly
-            _send_message_blocking(
-                self.message_sender.socket_path,
-                self.message_sender.timeout,
-                {
-                    "type": "progress", 
-                    "title": "Backup in progress",
-                    "description": display_path,
-                    "progress": progress_percent,
-                    "eta": f"ETA: {eta}",
-                    "timestamp": datetime.now().isoformat()
-                }
-            )
+            
+            await self.message_sender.send_message({
+                "type": "progress", 
+                "title": "Backup in progress",
+                "description": display_path,
+                "progress": progress_percent,
+                "eta": f"ETA: {eta}",
+                "timestamp": datetime.now().isoformat()
+            })
         except Exception as e:
             logging.warning(f"Failed to send progress update: {e}")
 
-        # The destination should be: backup_root + relative_path_from_source
+        # Large file detection - ASYNC
+        size_gb = size / (1024**3)  # GB
+        if size_gb >= 1:  # 1GB
+            file_name = os.path.basename(source)
+            await self.message_sender.send_message({
+                "type": "warning",
+                "title": "Warning",
+                "description": f"Large file detected: {file_name} ({size_gb:.1f}GB)",
+                "timestamp": datetime.now().isoformat()
+            })
+        
+        # Rest of your file processing logic remains the same...
         dest = os.path.join(self.app_main_backup_dir, rel_path)
         
-        # Determine destination path: new files go to main, updates go to incremental.
-        if file_info.get('new_file'):
-            dest = os.path.join(self.app_main_backup_dir, rel_path)
-            # logging.debug(f"Processing NEW file: {rel_path} -> {dest}")
-        else:
-            # This is an update, so it goes into the current incremental folder.
+        if not file_info.get('new_file'):
             dest = os.path.join(self.app_incremental_backup_dir, rel_path)
-            # logging.debug(f"Processing UPDATED file: {rel_path} -> {dest}")
         
-        # Ensure the destination directory exists before any operation.
+        # Ensure destination directory exists
         try:
             os.makedirs(os.path.dirname(dest), exist_ok=True)
         except OSError as e:
             if e.errno == errno.EROFS:
                 logging.error(f"Cannot create directory - read-only filesystem: {os.path.dirname(dest)}")
-                # Send warning synchronously
-                _send_message_blocking(
-                    self.message_sender.socket_path,
-                    self.message_sender.timeout,
-                    {
-                        "type": "warning",
-                        "title": "Warning",
-                        "description": "Cannot create backup directories - device is read-only",
-                        "timestamp": datetime.now().isoformat()
-                    }
-                )
+                await self.message_sender.send_message({
+                    "type": "warning",
+                    "title": "Warning",
+                    "description": "Cannot create backup directories - device is read-only",
+                    "timestamp": datetime.now().isoformat()
+                })
                 return False
             else:
                 logging.error(f"Failed to create destination directory for {dest}: {e}")
                 return False
         
         try:
-            # Try hardlink first if possible - this handles moved files!
+            # Try hardlink first if possible
             if file_info['is_hardlink_candidate']:
-                # Detect large file - use synchronous approach
-                size_gb = size / (1024**3)  # GB
-                if size_gb >= 1:  # 1GB
-                    file_name = os.path.basename(source)
-                    _send_message_blocking(
-                        self.message_sender.socket_path,
-                        self.message_sender.timeout,
-                        {
-                            "type": "warning",
-                            "title": "Warning",
-                            "description": f"Large file detected: {file_name} ({size_gb:.1f}GB)",
-                            "timestamp": datetime.now().isoformat()
-                        }
-                    )
-
                 existing = self.hash_to_path_map.get(file_hash)
                 if existing and self._try_hardlink(existing, dest):
                     logging.info(f"Hardlinked file (content exists): {rel_path}")
                     
-                    # If this was a moved file, update the metadata to point to new location
                     if existing_path and existing_path != rel_path:
                         logging.info(f"Updated moved file location: {existing_path} -> {rel_path}")
                     
                     self._update_metadata(rel_path, dest, file_info)
                     return True
 
-            # Fall back to copy if hardlink fails/impossible
-            if self._perform_atomic_copy(source, dest, file_hash, size):
-                # Detect large file - use synchronous approach
-                size_gb = size / (1024**3)  # GB
-                if size_gb >= 1:  # 1GB
-                    file_name = os.path.basename(source)
-                    _send_message_blocking(
-                        self.message_sender.socket_path,
-                        self.message_sender.timeout,
-                        {
-                            "type": "warning",
-                            "title": "Warning",
-                            "description": f"Large file detected: {file_name} ({size_gb:.1f}GB)",
-                            "timestamp": datetime.now().isoformat()
-                        }
-                    )
-                            
+            # Fall back to copy if hardlink fails
+            if self._perform_atomic_copy(source, dest, file_hash, size):                            
                 logging.info(f"Backing up file: {rel_path} -> {dest}")
                 self._update_metadata(rel_path, dest, file_info)
                 return True
@@ -1135,44 +1102,45 @@ class Daemon:
             logging.error(f"Failed to process {rel_path}: {e}")
             return False
 
-    def _cleanup_orphaned_files(self):
-        """Remove files from backup that no longer exist in source"""
-        logging.info("Checking for orphaned files in backup...")
+    # TO DELETE
+    # def _cleanup_orphaned_files(self):
+    #     """Remove files from backup that no longer exist in source"""
+    #     logging.info("Checking for orphaned files in backup...")
         
-        # Get all files currently in source
-        current_source_files = set()
-        for root, dirs, files in os.walk(self.users_home_dir):
-            # Filter directories
-            dirs[:] = [d for d in dirs if not self._should_exclude(os.path.join(root, d))]
+    #     # Get all files currently in source
+    #     current_source_files = set()
+    #     for root, dirs, files in os.walk(self.users_home_dir):
+    #         # Filter directories
+    #         dirs[:] = [d for d in dirs if not self._should_exclude(os.path.join(root, d))]
             
-            for file_name in files:
-                source_path = os.path.join(root, file_name)
-                if self._should_exclude(source_path):
-                    continue
+    #         for file_name in files:
+    #             source_path = os.path.join(root, file_name)
+    #             if self._should_exclude(source_path):
+    #                 continue
                     
-                # Calculate relative path
-                folder_name_base = os.path.basename(self.users_home_dir)
-                file_rel_path = os.path.relpath(source_path, self.users_home_dir)
-                rel_path = os.path.join(folder_name_base, file_rel_path)
-                current_source_files.add(rel_path)
+    #             # Calculate relative path
+    #             folder_name_base = os.path.basename(self.users_home_dir)
+    #             file_rel_path = os.path.relpath(source_path, self.users_home_dir)
+    #             rel_path = os.path.join(folder_name_base, file_rel_path)
+    #             current_source_files.add(rel_path)
         
-        # Find files in metadata that don't exist in source anymore
-        orphaned_files = set(self.metadata.keys()) - current_source_files
+    #     # Find files in metadata that don't exist in source anymore
+    #     orphaned_files = set(self.metadata.keys()) - current_source_files
         
-        for orphaned_rel_path in orphaned_files:
-            backup_path = os.path.join(self.app_main_backup_dir, orphaned_rel_path)
-            if os.path.exists(backup_path):
-                logging.info(f"Removing orphaned backup file: {orphaned_rel_path}")
-                try:
-                    os.remove(backup_path)
-                    # Remove from metadata
-                    with self.state_lock:
-                        if orphaned_rel_path in self.metadata:
-                            del self.metadata[orphaned_rel_path]
-                except Exception as e:
-                    logging.warning(f"Failed to remove orphaned file {backup_path}: {e}")
+    #     for orphaned_rel_path in orphaned_files:
+    #         backup_path = os.path.join(self.app_main_backup_dir, orphaned_rel_path)
+    #         if os.path.exists(backup_path):
+    #             logging.info(f"Removing orphaned backup file: {orphaned_rel_path}")
+    #             try:
+    #                 os.remove(backup_path)
+    #                 # Remove from metadata
+    #                 with self.state_lock:
+    #                     if orphaned_rel_path in self.metadata:
+    #                         del self.metadata[orphaned_rel_path]
+    #             except Exception as e:
+    #                 logging.warning(f"Failed to remove orphaned file {backup_path}: {e}")
         
-        logging.info(f"Cleaned up {len(orphaned_files)} orphaned files")
+    #     logging.info(f"Cleaned up {len(orphaned_files)} orphaned files")
 
     async def _generate_summary(self):
         """Generate backup summary of files copied during this run"""
@@ -1225,14 +1193,6 @@ class Daemon:
         self.files_backed_up_count = 0
         self.total_size_transferred = 0
 
-        # Start backup - clear analyzing state
-        await self.message_sender.send_backup_progress(
-            description="Starting backup...",
-            progress=0,
-            eta="Calculating..."
-        )
-        self.backup_start_time = time.time()
-
         try:
             logging.info("-" * 50)
             logging.info(f"Starting new backup cycle to {self.app_main_backup_dir}.")
@@ -1242,24 +1202,22 @@ class Daemon:
                 return # Exit cycle if check was cancelled.
             
             # --- STAGE 1: Pre-flight Check & Size Assessment ---
-            await self._pre_flight_scan()
+            has_files_to_backup = await self._pre_flight_scan()
 
-            # Check if there are files to back up
-            if not self.files_to_backup:
+            # Check if there are files to back up - if not, exit early
+            if not has_files_to_backup:
                 logging.info("No files require backup. Cycle complete.")
-                await self.message_sender.send_backup_completed("No files to backup")
-                return
+                return  # Exit early without sending backup progress messages
 
             # Check if drive is connected and has space
             if not self._check_disk_space():
                 """Send warnings for disk space issues."""
-                logging.warning("Skipping backup due to connection or space issue.")
-                await self.message_sender.send_warning("Low disk space on backup device")
+                await self.message_sender.send_warning("Insufficient disk space on backup device")
                 return
             
             # --- STAGE 2: Concurrent Copy & Atomic Commit ---
-            # Clear analyzing state and show we're starting backup
-            await asyncio.sleep(0.5)  # A small delay and send a clear completion message
+            # Only send backup progress if we actually have files to backup
+            self.backup_start_time = time.time()
             await self.message_sender.send_backup_progress(
                 description="Starting file backup...",
                 progress=0,
@@ -1270,9 +1228,9 @@ class Daemon:
             self.executor._max_workers = num_workers
             logging.info(f"Starting concurrent copy phase with {num_workers} worker threads.")
 
-            loop = asyncio.get_running_loop()
+            # Use asyncio.gather with async file processing
             tasks = [
-                loop.run_in_executor(self.executor, functools.partial(self.process_file, file_info))
+                self.process_file(file_info)
                 for file_info in self.files_to_backup
             ]
 
@@ -1280,14 +1238,12 @@ class Daemon:
                 results = await asyncio.gather(*tasks, return_exceptions=True)
             except asyncio.CancelledError:
                 logging.info("Backup cycle cancelled while awaiting worker tasks.")
-                # treat remaining as failures; let shutdown path persist state
                 results = []
 
             # Normalize exceptions -> False
             normalized = []
             for r in results:
                 if isinstance(r, Exception):
-                    # logging.error(f"Worker task raised: {r}", exc_info=True)
                     normalized.append(False)
                 else:
                     normalized.append(bool(r))
@@ -1307,7 +1263,7 @@ class Daemon:
 
             # --- STAGE 3: Finalize Metadata ---
             try:
-                server.save_metadata(self.metadata)  # Final save
+                server.save_metadata(self.metadata)
                 try:
                     self.journal.flush()
                 except Exception:
@@ -1317,11 +1273,6 @@ class Daemon:
             logging.info("Metadata updated.")
 
             # --- STAGE 4: Completion ---
-
-            # After backup completes, clean up orphaned files
-            if self.files_backed_up_count > 0:
-                self._cleanup_orphaned_files()
-
             # Generate summary for Videos, Music etc.
             await self._generate_summary()
 
@@ -1345,7 +1296,7 @@ class Daemon:
                 logging.info("Cycle cancelled and cleanup finished. Exiting main loop.")
                 break # Exit the while loop to end the program
 
-            # 3. Sleep, but wrap it in a try/except to handle a second Ctrl+C
+            # 3. Sleep
             try:
                 logging.info(f"Sleeping for {self.wait_time_minutes} minutes...")
                 await self.message_sender.send_sleeping(f"Sleeping...")
@@ -1602,21 +1553,11 @@ class MessageSender():
         except Exception as e:
             logging.debug(f"[MessageSender] Failed to send message: {e}")
             return False
-        
-        # try:
-        #     # Await the execution of the blocking function in a separate thread
-        #     return await asyncio.to_thread(
-        #         _send_message_blocking,
-        #         self.socket_path,
-        #         self.timeout,
-        #         message_data
-        #     )
-        # except asyncio.CancelledError:
-        #     logging.debug("Message sending was cancelled")
-        #     return False
-        # except Exception as e:
-        #     logging.debug(f"[MessageSender] Failed to send message: {e}")
-        #     return False
+
+    def _get_timestamp(self) -> str:
+        """Get formatted minutes like '19 minutes ago'."""
+        current_minutes = int(time.time() / 60)
+        return f"{current_minutes} minutes ago"
     
     async def send_sleeping(self, description: str, processed: int = 0, progress: int = 0) -> bool:
         """Send sleeping files activity."""
@@ -1626,7 +1567,7 @@ class MessageSender():
             "description": description,
             "progress": "progress",
             "processed": "processed",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": self._get_timestamp()
         }
         return await self.send_message(message)
 
@@ -1639,7 +1580,7 @@ class MessageSender():
             "description": description,
             "progress": progress,
             "processed": processed,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": self._get_timestamp()
         }
         return await self.send_message(message) 
 
@@ -1659,17 +1600,31 @@ class MessageSender():
             "description": description,
             "progress": progress,
             "eta": eta,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": self._get_timestamp()
         }
         return await self.send_message(message)
+    
+    async def send_scan_completed(self, description: str) -> bool:
+        """Send backup completed activity."""
+        message = {
+            "type": "scan_completed",
+            "title": "File scan completed", 
+            "description": description,
+            "progress": 100,  # Ensure progress shows as complete
+            "eta": "Completed",  # Clear ETA
+            "timestamp": self._get_timestamp()
+        }
+        return await self.send_message(message)  
 
     async def send_backup_completed(self, description: str) -> bool:
         """Send backup completed activity."""
         message = {
             "type": "completed",
-            "title": "Backup completed",
+            "title": "Backup completed", 
             "description": description,
-            "timestamp": datetime.now().isoformat()
+            "progress": 100,  # Ensure progress shows as complete
+            "eta": "Completed",  # Clear ETA
+            "timestamp": self._get_timestamp()
         }
         return await self.send_message(message)  
 
@@ -1679,7 +1634,7 @@ class MessageSender():
             "type": "warning",
             "title": "Warning",
             "description": description,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": self._get_timestamp()
         }
         return await self.send_message(message)
 
@@ -1689,7 +1644,7 @@ class MessageSender():
             "type": "info", 
             "title": "New folder added",
             "description": description,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": self._get_timestamp()
         }
         return await self.send_message(message)
     
@@ -1808,7 +1763,16 @@ async def main():
             except Exception:
                 pass
 
+            # Clean pid
+            def cleanup_pid():
+                try:
+                    if os.path.exists(server.DAEMON_PID_LOCATION):
+                        os.remove(server.DAEMON_PID_LOCATION)
+                except Exception:
+                    pass
+
             logging.info("Daemon cleanup complete.")
+            cleanup_pid()  # Clean pid
         except Exception as e:
             logging.warning(f"Error during shutdown cleanup: {e}")
 

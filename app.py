@@ -61,13 +61,13 @@ _rate_limit_data = {}
 # External sc
 server = SERVER()
 
-HOME_USERNAME: str = os.path.join(os.path.expanduser("~"))
+USERS_HOME: str = os.path.expanduser("~")
 USERNAME: str = getpass.getuser()
 
 
-################################################################################
+# =============================================================================######
 # APP SETTINGS
-################################################################################
+# =============================================================================######
 # Path to your config file
 app_dir = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(app_dir, 'config', 'config.conf')
@@ -80,7 +80,7 @@ MAIN_BACKUP_LOCATION: str = '.main_backup'
 # Flatpak
 DAEMON_PY_LOCATION: str = os.path.join('/app/share/timemachine/src', 'daemon.py')
 id: str = server.ID
-DAEMON_PID_LOCATION: str = os.path.join(HOME_USERNAME, '.var', 'app', id, 'config', 'daemon.pid')
+DAEMON_PID_LOCATION: str = server.DAEMON_PID_LOCATION
 
 # SOCKET_PATH = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), f"{APP_NAME_CLOSE_LOWER}-ui.sock")
 SOCKET_PATH = server.SOCKET_PATH
@@ -102,11 +102,13 @@ DRIVER_NAME: str = server.DRIVER_NAME
 DRIVER_PATH: str = server.DRIVER_PATH
 DRIVER_FILESYTEM: str = server.DRIVER_FILESYTEM
 DRIVER_MODEL: str = server.DRIVER_MODEL
-WATCHED_FOLDERS: str = server.WATCHED_FOLDERS
-EXCLUDED_FOLDERS: str = server.EXCLUDED_FOLDERS
+WATCHED_FOLDERS: str = server.WATCHED_FOLDERS if server.WATCHED_FOLDERS else []
+EXCLUDED_FOLDERS: str = server.EXCLUDED_FOLDERS if server.EXCLUDE_FOLDER else []
 
 # Calculations
 bytes_to_human = SERVER.bytes_to_human
+
+REFRESH_FLAG_CONFIG = 'need_refresh_database'
 
 server = SERVER()
 message_queue = Queue()
@@ -144,7 +146,8 @@ class BackupService:
             })
             
             source = self.config['DEVICE_INFO']['path']
-            destination = self.config['BACKUP'].get('destination', '/backups')
+            backup_location_dir_name: str = server.BACKUPS_LOCATION_DIR_NAME
+            destination = self.config['BACKUP'].get('destination', f'/{backup_location_dir_name}')
             
             Path(destination).mkdir(parents=True, exist_ok=True)
             
@@ -199,9 +202,9 @@ class BackupService:
             self.process.terminate()
             BACKUP_STATUS['running'] = False
 	
-    ##########################################################################
+    # =============================================================================
 	# Socket reciever
-	##########################################################################
+	# =============================================================================
     def start_server(self):
             """UNIX Socket listener to receive messages and broadcast to WebSockets."""
             if os.path.exists(SOCKET_PATH):
@@ -410,9 +413,9 @@ class BackupService:
                 except ValueError:
                     pass # Client already removed
 
-    ##########################################################################
+    # =============================================================================
 	# Open file location
-	##########################################################################
+	# =============================================================================
     def on_open_location_clicked(self, file_path_from_button):
         if file_path_from_button:
             folder_path = os.path.dirname(file_path_from_button)
@@ -438,9 +441,9 @@ class BackupService:
             print(f"Failed to open folder {folder_path} with xdg-open: {e_xdg}")
 
 
-##########################################################################
+# =============================================================================
 # APIS
-##########################################################################
+# =============================================================================
 @app.route('/')
 def index():
     return render_template('web.html')
@@ -496,85 +499,49 @@ def handle_unexpected_error(error):
 # =============================================================================
 # CONFIG FILE HANDLER
 # =============================================================================
-@app.route('/api/config', methods=['GET'])
-def get_config():
-    config = configparser.ConfigParser()
-    config.read(CONFIG_PATH)
-    config_dict = {s: dict(config.items(s)) for s in config.sections()}
-    return jsonify({**config_dict, 'backup_status': BACKUP_STATUS})
-
-@app.route('/api/storage')
-def storage_info():
-    return jsonify({
-        'configured': get_storage_info(),
-        'all_devices': get_all_storage_devices()
-    })
-
-@app.route('/api/storage/current')
-def current_storage():
-    # Get the currently configured device from config
-    config = configparser.ConfigParser()
-    config.read(CONFIG_PATH)
-    driver_path = config.get('DRIVER', 'driver_location', fallback=None)
-    
-    return jsonify(get_storage_info(driver_path))
-
-@app.route('/api/config', methods=['POST'])
-def update_config():
-    new_config = request.json
-    
-    config = configparser.ConfigParser()
-    config.read(CONFIG_PATH)
-    
-    for section, options in new_config.items():
-        if not config.has_section(section):
-            config.add_section(section)
-        for key, value in options.items():
-            config.set(section, key, str(value))
-    
-    with open(CONFIG_PATH, 'w') as configfile:
-        config.write(configfile)
-    
-    return jsonify({'status': 'success'})
-
 @app.route('/api/backup/usage')
 def backup_usage():
     try:
         config = configparser.ConfigParser()
         config.read(CONFIG_PATH)
         
-        # Check if config file has the necessary options
-        if not config.has_section('DEVICE_INFO') or not config.has_option('DEVICE_INFO', 'path'):
+        # 1. Ensure the necessary config information are registered
+        necessary_config_sections = config.has_section('DEVICE_INFO')
+        necessary_config_options = config.has_option('DEVICE_INFO', 'path')
+        
+        if not necessary_config_sections or not necessary_config_options:
+            # User did not registered a backup device yet      
             return jsonify({
                 'success': False,
                 'error': 'Please select a backup device first! Go to Devices → Select your storage → Confirm Selection',
                 'user_action_required': True,
                 'location': 'Not configured'
             })
-            
-        # Check if backup device was chosen        
+        
+        # Now we know the config exists, so we can safely get DRIVER_PATH
         if not DRIVER_PATH or not os.path.exists(DRIVER_PATH):
+            # Device is disconnected or path doesn't exist
             return jsonify({
                 'success': False,
-                'error': f'Your selected device is not available. Please: 1) Connect your device, 2) Go to Devices → Select it again → Confirm',
+                'error': 'Connection to backup device is not available. Please ensure the backup device is connected and mounted.',
                 'user_action_required': True,
-                'location': DRIVER_PATH
+                'location': DRIVER_PATH or 'Not configured'
             })
 
         # Get disk usage
         total, used, free = shutil.disk_usage(DRIVER_PATH)
         percent_used = (used / total) * 100 if total > 0 else 0
         
-        # Get home disk usage (this seems to be using the same path - you might want to fix this)
-        home_total, home_used, home_free = shutil.disk_usage(os.path.expanduser('~'))  # Fixed: use home directory
+        # Get home disk usage
+        home_total, home_used, home_free = shutil.disk_usage(os.path.expanduser('~'))
         home_percent_used = (home_used / home_total) * 100 if home_total > 0 else 0
         
-        ##########################################################################
+        # =============================================================================
         # Summary and backup summary
-        ##########################################################################
+        # =============================================================================
         def get_backup_summary() -> dict:
             try:
-                summary_file = server.SUMMARY_FILE_PATH
+                summary_file = server.get_summary_file_path()
                 if not os.path.exists(summary_file):
                     print(f"Summary file not found: {summary_file}")
                     return {}
@@ -601,12 +568,12 @@ def backup_usage():
             'home_human_free': bytes_to_human(home_free),
             'home_percent_used': round(home_percent_used, 1),
             'users_home_path': os.path.expanduser('~'),
-            'summary': get_backup_summary(),
+            'summary': get_backup_summary() if get_backup_summary() else "No backup summary available",
             # Add device information from config
             'device_name': DRIVER_NAME,
             'filesystem': DRIVER_FILESYTEM,
             'model': DRIVER_MODEL,
-            'serial_number': "DRIVER_SERIAL"  # Add this if available
+            'serial_number': "DRIVER_SERIAL"
         })        
     except Exception as e:
         app.logger.error(f"Error in backup_usage: {str(e)}")
@@ -615,27 +582,6 @@ def backup_usage():
             'error': str(e),
             'location': 'Error'
         }), 500
-
-@app.route('/api/backup/location')
-def backup_location():
-    """Docstring for backup_location"""
-    # Get disk usage (simplified version)
-    try:
-        total, used, free = shutil.disk_usage(DRIVER_PATH)
-        percent_used = round((used / total) * 100) if total > 0 else 0
-        
-        return jsonify({
-            'location': DRIVER_PATH,
-            'total': bytes_to_human(total),
-            'used': bytes_to_human(used),
-            'free': bytes_to_human(free),
-            'percent_used': percent_used
-        })
-    except Exception as e:
-        return jsonify({
-            'location': DRIVER_PATH,
-            'error': str(e)
-        })
 
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
@@ -748,7 +694,6 @@ def select_device():
     device_info = data.get('device_info', {})
     device_path = device_info.get('mount_point')
     
-    # 1. Validation Check
     if not device_path:
         return jsonify({'success': False, 'error': 'No device path provided'}), 400
     
@@ -759,45 +704,47 @@ def select_device():
                 'error': f'Path does not exist: {device_path}'
             }), 400
             
-        # 2. Load Configuration
         config = configparser.ConfigParser()
         config.read(CONFIG_PATH)
         
         if not config.has_section('DEVICE_INFO'):
             config.add_section('DEVICE_INFO')
             
-        # 3. Store ALL necessary fields from the client-provided dictionary
-        
-        # Mandatory field
         config.set('DEVICE_INFO', 'path', device_path)
-        
-        # Optional fields, relying on the client to send the full, pre-fetched data
         config.set('DEVICE_INFO', 'name', device_info.get('name', 'N/A'))
         config.set('DEVICE_INFO', 'device', device_info.get('device', 'N/A'))
         config.set('DEVICE_INFO', 'serial_number', device_info.get('serial_number', 'N/A'))
         config.set('DEVICE_INFO', 'model', device_info.get('model', 'N/A'))
         
-        # Save the detected disk type
-        # NOTE: If 'is_ssd' isn't explicitly sent, the default logic assumes 'hdd'
         is_ssd_value = 'ssd' if device_info.get('is_ssd') else 'hdd'
         config.set('DEVICE_INFO', 'disk_type', is_ssd_value)
-
-        # Optional: Save filesystem and total size for display/checks
         config.set('DEVICE_INFO', 'filesystem', device_info.get('filesystem', 'N/A'))
         config.set('DEVICE_INFO', 'total_size_bytes', str(device_info.get('total', 0)))
 
-        # 4. Write Configuration
         with open(CONFIG_PATH, 'w') as configfile:
             config.write(configfile)
         
-        # 5. Reload the global variables
+        # Update global variables - CRITICAL: Update backup paths too!
         global DRIVER_NAME, DRIVER_PATH, DRIVER_FILESYTEM, DRIVER_MODEL
+        global APP_MAIN_BACKUP_DIR, APP_BACKUP_DIR
+        
         DRIVER_NAME = device_info.get('name', 'N/A')
         DRIVER_PATH = device_path
         DRIVER_FILESYTEM = device_info.get('filesystem', 'N/A')
         DRIVER_MODEL = device_info.get('model', 'N/A')
         
-        # 6. Send Success Response
+        # CRITICAL: Update backup directory paths to point to new device
+        APP_MAIN_BACKUP_DIR = os.path.join(DRIVER_PATH, 'timemachine', 'backups', '.main_backup')
+        APP_BACKUP_DIR = os.path.join(DRIVER_PATH, 'timemachine', 'backups')
+        
+        # Update search handler and clear caches
+        search_handler.update_backup_location()
+        search_handler.clear_cache()
+        
+        # Clear any file version caches
+        import gc
+        gc.collect()
+        
         return jsonify({
             'success': True,
             'message': f'Backup device {device_path} configured successfully.',
@@ -805,7 +752,6 @@ def select_device():
         })
     
     except Exception as e:
-        # A 500 status code is appropriate for a server failure during save.
         return jsonify({
             'success': False,
             'error': f'Failed to save configuration: {str(e)}'
@@ -829,100 +775,47 @@ def scan_devices():
             'error': str(e)
         }), 500
 
-@app.route('/api/config/folders')
-def get_folder_config():
-    config = configparser.ConfigParser()
-    config.read(CONFIG_PATH)
-    
-    watched = WATCHED_FOLDERS.split(',') if config.has_section('WATCHED') else []  # Get watched folders
-    excluded = EXCLUDED_FOLDERS.split(',')  # Get excluded folders
-    
-    return jsonify({
-        'watched': [f.strip() for f in watched if f.strip()],
-        'excluded': [f.strip() for f in excluded if f.strip()]
-    })
-
 
 # =============================================================================
 # WATCHED FOLDERS
 # =============================================================================
-def rate_limit(requests_per_minute=10):
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            # Use IP address as key
-            key = request.remote_addr
-            current_time = time()
-            
-            # Initialize or get existing data
-            if key not in _rate_limit_data:
-                _rate_limit_data[key] = {'count': 0, 'start_time': current_time}
-            
-            data = _rate_limit_data[key]
-            
-            # Reset counter if more than a minute has passed
-            if current_time - data['start_time'] > 60:
-                data['count'] = 0
-                data['start_time'] = current_time
-            
-            # Check if over limit
-            if data['count'] >= requests_per_minute:
-                return jsonify({
-                    'success': False,
-                    'error': f'Rate limit exceeded. Maximum {requests_per_minute} requests per minute.'
-                }), 429
-            
-            # Increment counter
-            data['count'] += 1
-            
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
-
-
 @app.route('/api/watched-folders')
 def get_watched_folders():
     try:
-        home_path = os.path.expanduser('~')
-        print(f"Home path: {home_path}")
+        # RELOAD the config every time this endpoint is called
+        config = configparser.ConfigParser()
+        config.read(CONFIG_PATH)
         
-        # Check if home directory exists and is accessible
-        if not os.path.exists(home_path):
-            return jsonify({'error': f'Home directory not found: {home_path}', 'folders': []}), 404
-        
-        # Get excluded folders safely
-        excluded_folders = []
-        if hasattr(server, 'EXCLUDE_FOLDER'):
-            excluded_folders = server.EXCLUDE_FOLDER.split(',')
-            excluded_folders = [f.strip() for f in excluded_folders if f.strip()]
-        print(f"Excluded folders: {excluded_folders}")
-        
-        # Get backup directory safely
-        dest_to_main = ""
-        if hasattr(server, 'app_main_backup_dir'):
-            dest_to_main = server.app_main_backup_dir()
-        print(f"Backup directory: {dest_to_main}")
+        # Get the CURRENT excluded folders from config
+        current_excluded_folders = config.get('EXCLUDE_FOLDER', 'folders', fallback='')
+        if current_excluded_folders:
+            not_backup_folders = [f.strip() for f in current_excluded_folders.split(',') if f.strip()]
+        else:
+            not_backup_folders = []
             
         watched_folders = []
+        print(f"USERS_HOME: {USERS_HOME}")
+        print(f"Current excluded folders: {not_backup_folders}")
         
-        for item in os.listdir(home_path):
-            item_path = os.path.join(home_path, item)
+        for item in os.listdir(USERS_HOME):
+            item_path = os.path.join(USERS_HOME, item)
             
             if not os.path.isdir(item_path) or item.startswith('.'):
                 continue
                 
-            is_excluded = item in excluded_folders or item_path in excluded_folders
+            # Check if folder should be excluded from backup
+            to_backup = item in not_backup_folders or item_path in not_backup_folders
             
             watched_folders.append({
                 'name': item,
                 'path': item_path,
-                'status': 'Inactive' if is_excluded else 'Active',
+                'status': 'Inactive' if to_backup else 'Active',
                 'last_activity': datetime.now().isoformat(),
-                'destination': os.path.join(dest_to_main, item) if dest_to_main else "",
-                'is_excluded': is_excluded,
+                'destination': os.path.join(APP_MAIN_BACKUP_DIR, item),
+                'to_backup': to_backup,  # This should match the exclude logic
                 'excluded_subfolders': [
                     os.path.relpath(sub, item_path) 
-                    for sub in excluded_folders 
+                    for sub in not_backup_folders 
                     if sub.startswith(item_path)
                 ]
             })
@@ -935,123 +828,69 @@ def get_watched_folders():
     except Exception as e:
         logging.error(f"Error in get_watched_folders: {str(e)}")
         import traceback
-        traceback.print_exc()  # This will print the full traceback to console
+        traceback.print_exc()
         return jsonify({'error': str(e), 'folders': []}), 500
     
-
 @app.route('/api/folders/handle_folder_include_exclude', methods=['POST'])
 def handle_folder_include_exclude():
-    data = request.get_json()
-    folder_path = data.get('path')
-    is_excluded = data.get('is_excluded')
-    new_exclude_folders: list = []
-
+    # Input validation
+    if not request.json:
+        return jsonify({'success': False, 'error': 'No JSON data'}), 400
+    
+    folder_path = request.json.get('path', '').strip()
+    to_backup = request.json.get('to_backup')
+    
     if not folder_path:
-        return jsonify({'success': False, 'error': 'No folder path provided'}), 400
+        return jsonify({'success': False, 'error': 'Folder path required'}), 400
     
-    try:        
-        config = configparser.ConfigParser()
-        config.read(CONFIG_PATH)  # Load the configuration file
-        
-        # Check config file existence
-        if os.path.exists(CONFIG_PATH):
-            # Section existence check
-            if not config.has_section('EXCLUDE_FOLDER'):
-                config.add_section('EXCLUDE_FOLDER')
-        
-        # Read all excluded folders from config
-        new_exclude_folders = config.get('EXCLUDE_FOLDER', 'folders').split(',')
-        # Remove empty strings in case of trailing commas
-        new_exclude_folders = [folder.strip() for folder in new_exclude_folders if folder.strip()]
-        
-        if is_excluded:  # Add folder to exclude list (config file)
-            print(f"Add folder to exclude list: {folder_path}")
-            if folder_path not in new_exclude_folders:
-                new_exclude_folders.append(folder_path)
-        else:  # Remove folder from exclude list (config file)
-            print(f"Remove folder from exclude list: {folder_path}")
-            if folder_path in new_exclude_folders:
-                new_exclude_folders.remove(folder_path)
-
-        # Update the config only if there's a change
-        if config.get('EXCLUDE_FOLDER', 'folders', fallback='') != ','.join(new_exclude_folders):
-            config.set('EXCLUDE_FOLDER', 'folders', ','.join(new_exclude_folders))
-            with open(CONFIG_PATH, 'w') as configfile:
-                config.write(configfile)
-        
-        # Clear cache after changes
-        global _watched_folders_cache
-        _watched_folders_cache = None
-        
-        return jsonify({
-            'success': True,
-            'message': f"Folder {'excluded' if is_excluded else 'included'} in backup.",  # Corrected message
-            'is_excluded': is_excluded
-        })
-    except Exception as e:  # Handle any exceptions during the process
-        return jsonify({'success': False, 'error': str(e)}), 500
-    
-@app.route('/api/folders/add-exclusion', methods=['POST'])
-def add_folder_exclusion():
-    data = request.get_json()
-    parent_path = data.get('parent_path')
-    exclusion_path = data.get('exclusion_path')
-
-    if not parent_path or not exclusion_path:
-        return jsonify({'success': False, 'error': 'Missing parent or exclusion path'}), 400
+    if to_backup is None:
+        return jsonify({'success': False, 'error': 'Backup preference required'}), 400
 
     try:
+        # Normalize path
+        abs_path = os.path.abspath(folder_path)
+        if not os.path.isdir(abs_path):
+            return jsonify({'success': False, 'error': 'Folder not found'}), 400
+
+        # Read config
         config = configparser.ConfigParser()
         config.read(CONFIG_PATH)
-
+        
+        # Ensure section exists
         if not config.has_section('EXCLUDE_FOLDER'):
             config.add_section('EXCLUDE_FOLDER')
 
-        # Get the current list of excluded folders
-        excluded_folders_str = config.get('EXCLUDE_FOLDER', 'folders', fallback='')
-        excluded_folders = [f.strip() for f in excluded_folders_str.split(',') if f.strip()]
+        # Get current excludes as set for O(1) lookups
+        current = config.get('EXCLUDE_FOLDER', 'folders', fallback='')
+        excluded = {f.strip() for f in current.split(',') if f.strip()}
+        
+        # Apply changes
+        if to_backup:
+            # Include in backup - remove from excludes
+            excluded.discard(abs_path)
+        else:
+            # Exclude from backup - add to excludes
+            excluded.add(abs_path)
 
-        # Ensure the parent path isn't already excluded directly
-        if parent_path in excluded_folders:
-            return jsonify({
-                'success': False, 
-                'error': f'The parent folder "{parent_path}" is already excluded. Cannot add sub-exclusions.'
-            }), 400
-
-        # Ensure the exclusion path is within the parent folder and doesn't overlap with existing exclusions
-        if not exclusion_path.startswith(parent_path):
-            return jsonify({
-                'success': False, 
-                'error': f'The exclusion path "{exclusion_path}" is not within the parent folder "{parent_path}".'
-            }), 400
-
-        # Check for overlap: prevent adding an exclusion if a broader one exists
-        for existing_exclusion in excluded_folders:
-            if exclusion_path.startswith(existing_exclusion) and existing_exclusion != parent_path:
-                return jsonify({
-                    'success': False,
-                    'error': f'Cannot add "{exclusion_path}". It overlaps with existing exclusion "{existing_exclusion}".'
-                }), 400
-
-        # Add the new exclusion
-        excluded_folders.append(exclusion_path)
-
-        # Update the config
-        config.set('EXCLUDE_FOLDER', 'folders', ','.join(excluded_folders))
-
-        with open(CONFIG_PATH, 'w') as configfile:
-            config.write(configfile)
+        # Write back if changed
+        config.set('EXCLUDE_FOLDER', 'folders', ','.join(sorted(excluded)))
+        
+        with open(CONFIG_PATH, 'w') as f:
+            config.write(f)
 
         return jsonify({
             'success': True,
-            'message': f'Added exclusion: "{exclusion_path}"'
+            'message': f"Folder {'included in' if to_backup else 'excluded from'} backup",
+            'to_backup': to_backup
         })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
 
-##############################################################################
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Config error: {str(e)}'}), 500
+    
+
+# =============================================================================####
 # HANDLER FOR DAEMON AND REALTIME CHECKBOX
-##############################################################################
+# =============================================================================####
 @app.route('/api/realtime-backup/daemon', methods=['POST'])
 def call_daemon_script():
     data = request.get_json()
@@ -1212,9 +1051,9 @@ def call_daemon_script():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-##############################################################################
+# =============================================================================####
 # HANDLER SEARCH FOR FILES
-##############################################################################
+# =============================================================================####
 @app.route('/api/search', methods=['GET'])
 def search_files():
     query = request.args.get('query', '').strip().lower()
@@ -1232,32 +1071,27 @@ def search_files():
         app.logger.error(f"Error during file search: {e}", exc_info=True)
         return jsonify(error="An error occurred during search."), 500
 
-##############################################################################
+
+# =============================================================================####
 # HANDLER FILES ACTIONS (OPEN, OPEN LOCATION ETC.)
-##############################################################################
+# =============================================================================####
 @app.route('/api/open-location', methods=['POST'])
 def open_location():
     try:
         data = request.get_json()
-        file_path: str = data.get('file_path')
-        print("data:", data)
+        file_path = data.get('file_path')
+        
         if not file_path:
             return jsonify({'success': False, 'error': 'No file_path provided'}), 400
 
-        # Get item dir location
-        file_path = '/'.join(file_path.split('/')[:-1])
-
-        print()
-        print("Opening folder location:", file_path)
-        print()
         if os.name == 'nt':  # Windows
-            os.startfile(file_path)
+            os.startfile(file_path)  # Open the folder
         elif os.uname().sysname == 'Darwin':  # macOS
-            sub.run(['open', file_path])
+            sub.run(['open', file_path])  # Open the folder
         else:  # Linux/Unix
-            sub.run(['xdg-open', file_path]) # or 'gnome-open', 'kde-open'
+            sub.run(['xdg-open', file_path])  # Open the folder
 
-        return jsonify({'success': True, 'message': f'Attempted to open: {file_path}'}), 200
+        return jsonify({'success': True, 'message': f'Attempted to open folder: {file_path}'}), 200
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1308,7 +1142,7 @@ def restore_file():
         else:  # Linux/Unix
             abs_file_to_restore_path = os.path.abspath(file_path)
             main_backup_abs_path = os.path.abspath(APP_MAIN_BACKUP_DIR)
-            incremental_backups_abs_path = os.path.abspath(server.app_backup_dir)
+            incremental_backups_abs_path = os.path.abspath(APP_BACKUP_DIR)  # FIXED: Removed extra parenthesis
 
             rel_path = None
             if abs_file_to_restore_path.startswith(main_backup_abs_path):
@@ -1321,52 +1155,76 @@ def restore_file():
                     rel_path = os.path.join(*parts[2:])
                 else:
                     print(f"Error: Could not determine relative path for incremental backup: {file_path}")
-                    # Return an error response here
                     return jsonify({'success': False, 'error': 'Could not determine relative path for incremental backup'}), 400
             else:
                 print(f"Error: File path '{file_path}' is not within known backup locations: '{main_backup_abs_path}' or '{incremental_backups_abs_path}'")
-                # Return an error response here
                 return jsonify({'success': False, 'error': 'File not within known backup locations'}), 400
 
-            destination_path = os.path.join(HOME_USERNAME, rel_path)
+            destination_path = os.path.join(USERS_HOME, rel_path)
 
             def do_restore_async(src, dst):
                 try:
+                    print(f"🚀 Starting restore from: {src}")
+                    print(f"🎯 Restoring to: {dst}")
+                    
                     os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    
+                    # Check if source file exists
+                    if not os.path.exists(src):
+                        print(f"❌ Error: Source file does not exist: {src}")
+                        return
+                    
                     total_size = os.path.getsize(src)
                     copied = 0
                     chunk_size = 1024 * 1024  # 1MB
 
+                    print(f"📁 Copying {total_size} bytes...")
+                    
+                    # TODO
+                    """ 
+                        Create a notification "Restoring file"
+                        Use send_restoring_file from server.py file.
+                    """
+
                     with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
                         while True:
                             chunk = fsrc.read(chunk_size)
-                            if not chunk: break
+                            if not chunk: 
+                                break
                             fdst.write(chunk)
                             copied += len(chunk)
-                            # You could send progress updates here via WebSockets/SSE if implemented
-                            # For now, just print to console
-                            # progress = copied / total_size if total_size > 0 else 1.0
-                            # print(f"Restoring {os.path.basename(src)}: {progress*100:.2f}%")
 
-                    print(f"Restored {src} to {dst}")
+                    print(f"✅ Successfully restored {src} to {dst}")
                     shutil.copystat(src, dst)
-                    # No jsonify return here, as this is in a separate thread
-                    # If you need frontend feedback, use WebSockets/SSE from here
+                    print(f"🎉 Restore completed successfully!")
+                    
+                    # TODO
+                    """ 
+                        Create a notification "Restoretion completed"
+                    """
+                    
                 except Exception as e:
-                    print(f"Error restoring file (async thread): {e}")
-                    # Log error, potentially send error update via WebSockets/SSE
+                    print(f"❌ Error restoring file (async thread): {e}")
             
             # Start the restoration in a background thread
-            threading.Thread(target=do_restore_async, args=(file_path, destination_path), daemon=True).start()
+            threading.Thread(target=asyncio.run(do_restore_async, args=(file_path, destination_path), daemon=True)).start()
 
-            # IMPORTANT: Return an immediate response to the client
-            return jsonify({'success': True, 'message': 'File restoration process started in background.'}), 202 # 202 Accepted
+            return jsonify({
+                'success': True, 
+                'message': 'File restoration process started in background.',
+                'restored_to': destination_path
+            }), 202
+
     except Exception as e:
+        print(f"Error in restore_file endpoint: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+    
 
-##############################################################################
+# =============================================================================####
 # READ CONTENT
-##############################################################################
+# =============================================================================####
 @app.route('/api/file-content', methods=['GET'])
 def read_file_content(file_path=None):
     # Accept either 'file' or 'file_path' as query parameter for compatibility
@@ -1408,111 +1266,324 @@ def read_file_content(file_path=None):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# FOR TESTING
+# @app.route('/api/file-versions', methods=['GET'])
+# def get_file_versions():
+#     file_path_requested = request.args.get('file_path')
+#     if not file_path_requested:
+#         return jsonify({'success': False, 'error': 'Missing file_path'}), 400
+    
+#     versions = []
+    
+#     try:
+#         print(f"\n=== File Version Lookup Debug ===")
+#         print(f"Requested path: {file_path_requested}")
+        
+#         # Get absolute paths for all locations
+#         home_abs_path = os.path.expanduser(USERS_HOME)
+#         main_backup_abs_path = os.path.expanduser(APP_MAIN_BACKUP_DIR)
+#         incremental_base_path = os.path.expanduser(APP_BACKUP_DIR)
+        
+#         print(f"Home path: {home_abs_path}")
+#         print(f"Main backup: {main_backup_abs_path}")
+#         print(f"Incremental base: {incremental_base_path}")
+        
+#         # CRITICAL FIX: Extract just the filename for lookup
+#         file_name_only = os.path.basename(file_path_requested)
+#         print(f"Using filename for search: {file_name_only}")
+        
+#         # 1. Current version in home directory
+#         # Search for the file in home directory recursively
+#         for root, dirs, files in os.walk(home_abs_path):
+#             if file_name_only in files:
+#                 home_file_path = os.path.join(root, file_name_only)
+#                 stat = os.stat(home_file_path)
+#                 versions.append({
+#                     'key': 'home',
+#                     'time': 'Current Version',
+#                     'path': home_file_path,
+#                     'size': stat.st_size,
+#                     'mtime': stat.st_mtime
+#                 })
+#                 print(f"Found home version: {home_file_path}")
+#                 break
+        
+#         # 2. Main backup version - from CURRENT device
+#         main_backup_file = None
+#         if os.path.exists(main_backup_abs_path):
+#             for root, dirs, files in os.walk(main_backup_abs_path):
+#                 if file_name_only in files:
+#                     main_backup_file = os.path.join(root, file_name_only)
+#                     stat = os.stat(main_backup_file)
+#                     versions.append({
+#                         'key': 'main',
+#                         'time': 'Main Backup',
+#                         'path': main_backup_file,
+#                         'size': stat.st_size,
+#                         'mtime': stat.st_mtime
+#                     })
+#                     print(f"Found main backup version: {main_backup_file}")
+#                     break
+        
+#         # 3. Incremental backup versions - from CURRENT device
+#         if os.path.exists(incremental_base_path):
+#             for date_folder in sorted(os.listdir(incremental_base_path), reverse=True):
+#                 date_path = os.path.join(incremental_base_path, date_folder)
+#                 if not os.path.isdir(date_path):
+#                     continue
+                    
+#                 for time_folder in sorted(os.listdir(date_path), reverse=True):
+#                     time_path = os.path.join(date_path, time_folder)
+#                     if not os.path.isdir(time_path):
+#                         continue
+                    
+#                     # Search for the file in this incremental backup
+#                     for root, dirs, files in os.walk(time_path):
+#                         if file_name_only in files:
+#                             backup_file = os.path.join(root, file_name_only)
+#                             stat = os.stat(backup_file)
+                            
+#                             # FIXED: Use the original format "Nov 13, 2025, 10:53"
+#                             try:
+#                                 # Parse DD-MM-YYYY format and convert to "Nov 13, 2025"
+#                                 day, month, year = date_folder.split('-')
+#                                 month_int = int(month)
+#                                 month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+#                                              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+#                                 month_name = month_names[month_int - 1] if 1 <= month_int <= 12 else month
+                                
+#                                 # Format time from "10_53" to "10:53"
+#                                 formatted_time = time_folder.replace('_', ':')
+                                
+#                                 display_time = f"{month_name} {day}, {year}, {formatted_time}"
+#                             except:
+#                                 # Fallback to original format if parsing fails
+#                                 display_time = f"{date_folder} {time_folder.replace('_', ':')}"
+                                
+#                             versions.append({
+#                                 'key': f"{date_folder}_{time_folder}",
+#                                 'time': display_time,
+#                                 'path': backup_file,
+#                                 'size': stat.st_size,
+#                                 'mtime': stat.st_mtime
+#                             })
+#                             print(f"Found incremental version: {backup_file}")
+#                             break  # Found in this time folder, move to next
+        
+#         # 4. If the requested file itself is different from what we found, include it
+#         requested_file_abs = os.path.abspath(file_path_requested)
+#         if (requested_file_abs not in [v['path'] for v in versions] and 
+#             os.path.exists(requested_file_abs)):
+            
+#             stat = os.stat(requested_file_abs)
+            
+#             # Determine what type of file this is for display
+#             if requested_file_abs.startswith(main_backup_abs_path):
+#                 time_display = 'Main Backup'
+#                 key = 'main_requested'
+#             elif requested_file_abs.startswith(incremental_base_path):
+#                 # Extract date/time from path
+#                 temp_rel = os.path.relpath(requested_file_abs, incremental_base_path)
+#                 parts = temp_rel.split(os.sep)
+#                 if len(parts) >= 2:
+#                     date_folder = parts[0]
+#                     time_folder = parts[1]
+#                     try:
+#                         # Format to "Nov 13, 2025, 10:53"
+#                         day, month, year = date_folder.split('-')
+#                         month_int = int(month)
+#                         month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+#                                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+#                         month_name = month_names[month_int - 1] if 1 <= month_int <= 12 else month
+#                         formatted_time = time_folder.replace('_', ':')
+#                         time_display = f"{month_name} {day}, {year}, {formatted_time}"
+#                     except:
+#                         time_display = f"{date_folder} {time_folder.replace('_', ':')}"
+#                     key = f"{date_folder}_{time_folder}_requested"
+#                 else:
+#                     time_display = 'Backup Version'
+#                     key = 'backup_requested'
+#             else:
+#                 time_display = 'Requested File'
+#                 key = 'requested'
+            
+#             versions.append({
+#                 'key': key,
+#                 'time': time_display,
+#                 'path': requested_file_abs,
+#                 'size': stat.st_size,
+#                 'mtime': stat.st_mtime
+#             })
+#             print(f"Added requested file as version: {requested_file_abs}")
+        
+#         # Sort versions by modification time (newest first)
+#         versions.sort(key=lambda x: x.get('mtime', 0), reverse=True)
+        
+#         # Remove duplicates by path
+#         seen_paths = set()
+#         unique_versions = []
+#         for version in versions:
+#             if version['path'] not in seen_paths:
+#                 seen_paths.add(version['path'])
+#                 unique_versions.append(version)
+        
+#         # Clean up the response
+#         for version in unique_versions:
+#             version.pop('mtime', None)
+        
+#         print(f"Found {len(unique_versions)} unique versions")
+#         for v in unique_versions:
+#             print(f"  - {v['time']}: {v['path']}")
+#         print("=== End File Version Lookup ===\n")
+        
+#         return jsonify({'success': True, 'versions': unique_versions}), 200
+        
+#     except Exception as e:
+#         print(f"Error in get_file_versions: {e}")
+#         import traceback
+#         traceback.print_exc()
+#         return jsonify({'success': False, 'error': str(e)}), 500
+    
+# BACKUP
 @app.route('/api/file-versions', methods=['GET'])
 def get_file_versions():
-    # 1. The frontend passes the path it knows (which is currently the old main backup path).
     file_path_requested = request.args.get('file_path')
     if not file_path_requested:
         return jsonify({'success': False, 'error': 'Missing file_path'}), 400
     
-    # 2. Derive the relative path from the requested path. This relative path is
-    #    the key that links all versions together (incremental, main backup, and HOME).
+    versions: list = []
     
-    # --- START OF CRITICAL MODIFICATION ---
-    # We must determine the relative path regardless of whether the file_path_requested
-    # is the HOME path, an incremental backup path, or the main backup path.
-    rel_path = None
-    
-    # Attempt to derive rel_path from the APP_MAIN_BACKUP_DIR structure
-    main_backup_abs_path = os.path.abspath(APP_MAIN_BACKUP_DIR)
-    if os.path.abspath(file_path_requested).startswith(main_backup_abs_path):
-        rel_path = os.path.relpath(file_path_requested, main_backup_abs_path)
-    
-    # If the relative path could not be determined (e.g., if the user clicks a HOME-based link),
-    # we might need more complex logic, but based on your current flow, deriving it
-    # from APP_MAIN_BACKUP_DIR is the standard approach. We default to the simple
-    # rel_path calculation assuming the input is the main backup path.
-    if rel_path is None:
-        try:
-            # Fallback assuming the input path IS relative to HOME_USERNAME 
-            # (which is technically wrong based on your debug but safer)
-            rel_path = os.path.relpath(file_path_requested, os.path.abspath(HOME_USERNAME))
-        except ValueError:
-             # If all else fails, assume the initial file_path_requested already 
-             # represents the relative path or is derived from the main backup.
-             # This block is where the file tracking (via daemon.py) is truly needed,
-             # but for now, we continue with the path derived from the main backup.
-             rel_path = os.path.relpath(file_path_requested, APP_MAIN_BACKUP_DIR)
-    # --- END OF CRITICAL MODIFICATION ---
-
-    versions = []
-    
-    # --- 3. Find Incremental Backup Versions ---
-    # Search in incremental backup folders using the derived rel_path
-    for date_folder in os.listdir(server.app_backup_dir):
-        date_path = os.path.join(server.app_backup_dir, date_folder)
-        if not os.path.isdir(date_path):
-            continue
-        for time_folder in os.listdir(date_path):
-            time_path = os.path.join(date_path, time_folder)
-            backup_file = os.path.join(time_path, rel_path)
-            if os.path.exists(backup_file):
-                stat = os.stat(backup_file)
-                versions.append({
-                    'key': f"{date_folder}_{time_folder}",
-                    'time': f"{date_folder} {time_folder}",
-                    'path': backup_file,
-                    'size': stat.st_size,
-                })
-                
-    # --- 4. Add Main Backup Version ---
-    main_backup_file = os.path.join(APP_MAIN_BACKUP_DIR, rel_path)
-    if os.path.exists(main_backup_file):
-        stat = os.stat(main_backup_file)
-        # Using the previously defined get_original_home_path here for consistency, 
-        # though the 'Home' version below should take precedence if it exists.
-        versions.insert(0, {
-            'key': 'main',
-            'time': 'Main Backup',
-            'path': get_original_home_path(main_backup_file), 
-            'size': stat.st_size,
-        })
+    try:
+        print(f"\n=== File Version Lookup Debug ===")
+        print(f"Requested path: {file_path_requested}")
         
-    # --- 5. Add Current File Version (Home) ---
-    # Calculate the current (live) path in the user's home directory
-    home_current_file = os.path.join(os.path.abspath(HOME_USERNAME), rel_path)
-    
-    # Debug print statements (can be removed later)
-    print("\n--- File Version Lookup Debug ---")
-    print(f"File path requested: {file_path_requested}")
-    print(f"Relative path (derived): {rel_path}")
-    print(f"Home current file check: {home_current_file}")
-    print("--- End Debug ---\n")
+        # Get absolute paths for all locations (WITH PARENTHESES!)
+        home_abs_path = os.path.abspath(USERS_HOME)
+        main_backup_abs_path = os.path.abspath(APP_MAIN_BACKUP_DIR)
+        incremental_base_path = os.path.abspath(APP_BACKUP_DIR)  # FIXED: Added parentheses
+        
+        print(f"Home path: {home_abs_path}")
+        print(f"Main backup: {main_backup_abs_path}")
+        print(f"Incremental base: {incremental_base_path}")
+        
+        # Determine the relative path
+        rel_path = None
+        file_abs_path = os.path.abspath(file_path_requested)
+        
+        # Check if file is in main backup
+        if file_abs_path.startswith(main_backup_abs_path):
+            rel_path = os.path.relpath(file_abs_path, main_backup_abs_path)
+            print(f"File is in main backup, relative path: {rel_path}")
+        
+        # Check if file is in incremental backup  
+        elif file_abs_path.startswith(incremental_base_path):
+            # Extract path after date/time
+            temp_rel = os.path.relpath(file_abs_path, incremental_base_path)
+            parts = temp_rel.split(os.sep)
+            if len(parts) >= 3:  # Should be date/time/actual/path
+                rel_path = os.path.join(*parts[2:])
+                print(f"File is in incremental backup, relative path: {rel_path}")
+            else:
+                # If it's just date/time without further path, use the filename
+                rel_path = parts[-1] if parts else ""
+                print(f"File is direct in incremental folder, using: {rel_path}")
+        
+        # Check if file is in home directory
+        elif file_abs_path.startswith(home_abs_path):
+            rel_path = os.path.relpath(file_abs_path, home_abs_path)
+            print(f"File is in home directory, relative path: {rel_path}")
+        
+        else:
+            # Try to use the path as-is (might already be relative)
+            rel_path = file_path_requested
+            print(f"Using path as-is: {rel_path}")
+        
+        if not rel_path:
+            return jsonify({'success': False, 'error': 'Could not determine file path'}), 400
+        
+        # 2. Find all versions
+        
+        # Current version in home directory
+        home_current_file = os.path.join(home_abs_path, rel_path)
+        if os.path.exists(home_current_file):
+            stat = os.stat(home_current_file)
+            versions.append({
+                'key': 'home',
+                'time': 'Current Version',
+                'path': home_current_file,
+                'size': stat.st_size,
+                'mtime': stat.st_mtime
+            })
+            print(f"Found home version: {home_current_file}")
+        
+        # Main backup version
+        main_backup_file = os.path.join(main_backup_abs_path, rel_path)
+        if os.path.exists(main_backup_file):
+            stat = os.stat(main_backup_file)
+            versions.append({
+                'key': 'main',
+                'time': 'Main Backup',
+                'path': main_backup_file,
+                'size': stat.st_size,
+                'mtime': stat.st_mtime
+            })
+            print(f"Found main backup version: {main_backup_file}")
+        
+        # Incremental backup versions (only if incremental directory exists)
+        if os.path.exists(incremental_base_path):
+            for date_folder in os.listdir(incremental_base_path):
+                date_path = os.path.join(incremental_base_path, date_folder)
+                if not os.path.isdir(date_path):
+                    continue
+                    
+                for time_folder in os.listdir(date_path):
+                    time_path = os.path.join(date_path, time_folder)
+                    if not os.path.isdir(time_path):
+                        continue
+                        
+                    backup_file = os.path.join(time_path, rel_path)
+                    
+                    if os.path.exists(backup_file):
+                        stat = os.stat(backup_file)
+                        versions.append({
+                            'key': f"{date_folder}_{time_folder}",
+                            'time': f"{date_folder} {time_folder.replace('_', ':')}",
+                            'path': backup_file,
+                            'size': stat.st_size,
+                            'mtime': stat.st_mtime
+                        })
+                        print(f"Found incremental version: {backup_file}")
+        
+        # Sort versions by modification time (newest first)
+        versions.sort(key=lambda x: x.get('mtime', 0), reverse=True)
+        
+        # Clean up the response (remove mtime if not needed in frontend)
+        for version in versions:
+            version.pop('mtime', None)
+        
+        print(f"Found {len(versions)} total versions")
+        print("=== End File Version Lookup ===\n")
+        
+        return jsonify({'success': True, 'versions': versions}), 200
+        
+    except Exception as e:
+        print(f"Error in get_file_versions: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
-    if os.path.exists(home_current_file):
-        stat = os.stat(home_current_file)
-        # We ensure the most recent version is at the top
-        versions.insert(0, {
-            'key': 'Home',
-            'time': 'Current File Version (Live)',
-            'path': home_current_file,
-            'size': stat.st_size,
-        })
 
-    return jsonify({'success': True, 'versions': versions}), 200
-
-
-##########################################################################
+# =============================================================================
 # SUGGESTED FILES
-##########################################################################
+# =============================================================================
 @app.route('/api/suggested-files', methods=['GET'])
 def populate_suggested_files():
     """Get suggested files from backup summary data"""
     
-    summary_file_path = server.SUMMARY_FILE_PATH
-    added_files = set()
-    suggestions = []
-    MAX_SUGGESTIONS = 6  # Total suggestions to return
+    summary_file_path = server.get_summary_file_path()
+    added_files: set = set()
+    suggestions: list = []
+    MAX_SUGGESTIONS: int = 6  # Total suggestions to return
     
     # Check if we can get suggestions from backup summary
     if not (server.has_driver_connection(path=DRIVER_PATH) and os.path.exists(summary_file_path)):
@@ -1530,8 +1601,8 @@ def populate_suggested_files():
             return
         
         # Create paths for thumbnail and original file
-        thumbnail_path = os.path.join(server.main_backup_folder(), rel_path)
-        original_path = os.path.join(server.USER_HOME, rel_path)
+        thumbnail_path = os.path.join(APP_MAIN_BACKUP_DIR, rel_path)
+        original_path = os.path.join(USERS_HOME, rel_path)
         
         suggestions.append({
             "basename": basename,
@@ -1577,7 +1648,7 @@ def get_original_home_path(backup_file_path: str) -> str:
     
     # 1. Ensure the main backup folder path is absolute and normalized
     main_backup_abs_path = os.path.abspath(APP_MAIN_BACKUP_DIR)
-    home_abs_path = os.path.abspath(HOME_USERNAME)
+    home_abs_path = os.path.abspath(USERS_HOME)
 
     # 2. Check if the path starts with the main backup path
     if os.path.abspath(backup_file_path).startswith(main_backup_abs_path):
@@ -1592,32 +1663,154 @@ def get_original_home_path(backup_file_path: str) -> str:
     return backup_file_path
 
 
-# @sock.route('/backup-status')
-# def backup_status_ws(ws):
-#     """WebSocket endpoint for real-time backup status updates"""
-#     print("Backup status WebSocket client connected")
-    
-#     # Send initial status
-#     try:
-#         ws.send(json.dumps({
-#             'type': 'status',
-#             'data': BACKUP_STATUS
-#         }))
-#     except Exception as e:
-#         print(f"Error sending initial status: {e}")
-    
-#     # Keep connection open and handle incoming messages
-#     try:
-#         while True:
-#             message = ws.receive()
-#             if message:
-#                 # Handle client messages if needed
-#                 data = json.loads(message)
-#                 if data.get('type') == 'ping':
-#                     ws.send(json.dumps({'type': 'pong'}))
-#     except Exception as e:
-#         print(f"WebSocket connection closed: {e}")
+# =============================================================================
+# SEARCH
+# =============================================================================
+@app.route('/api/refresh-search-index', methods=['POST'])
+def refresh_search_index():
+    """Refresh the search index and clear the refresh flag"""
+    try:
+        # Clear the search handler cache to force rescan
+        search_handler.clear_cache()
+        search_handler.update_backup_location()
+        
+        # Clear the refresh flag in config
+        config = configparser.ConfigParser()
+        config.read(CONFIG_PATH)
+        
+        if config.has_section('SEARCH'):
+            config.set('SEARCH', REFRESH_FLAG_CONFIG, 'false')
+            with open(CONFIG_PATH, 'w') as configfile:
+                config.write(configfile)
+        
+        # Get the new backup location for logging
+        new_backup_path = config.get('DEVICE_INFO', 'path', fallback=DRIVER_PATH)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Search index refreshed. New backup location: {new_backup_path}',
+            'new_location': new_backup_path
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Failed to refresh search index: {str(e)}'
+        }), 500
 
+def set_search_refresh_flag():
+    """Set the flag indicating search database needs refresh"""
+    try:
+        config = configparser.ConfigParser()
+        config.read(CONFIG_PATH)
+        
+        if not config.has_section('SEARCH'):
+            config.add_section('SEARCH')
+            
+        config.set('SEARCH', REFRESH_FLAG_CONFIG, 'true')
+        
+        with open(CONFIG_PATH, 'w') as configfile:
+            config.write(configfile)
+            
+        print("Search refresh flag set to True")
+    except Exception as e:
+        print(f"Error setting refresh flag: {e}")
+
+def needs_search_refresh():
+    """Check if search database needs refresh"""
+    try:
+        config = configparser.ConfigParser()
+        config.read(CONFIG_PATH)
+        
+        if config.has_section('SEARCH') and config.has_option('SEARCH', REFRESH_FLAG_CONFIG):
+            return config.getboolean('SEARCH', REFRESH_FLAG_CONFIG)
+        return False
+    except Exception as e:
+        print(f"Error checking refresh flag: {e}")
+        return False
+    
+
+# =============================================================================
+# DAEMON MANAGER (Singleton Logic)
+# =============================================================================
+class DaemonManager:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.pid_file = DAEMON_PID_LOCATION
+        self.script_path = DAEMON_PY_LOCATION
+
+    def is_running(self):
+        """Check if daemon is actually running using PID file and OS check."""
+        if not os.path.exists(self.pid_file):
+            return False
+
+        try:
+            with open(self.pid_file, 'r') as f:
+                pid = int(f.read().strip())
+            
+            # Check if process exists (Unix specific)
+            # os.kill(pid, 0) does not kill the process, just checks existence
+            os.kill(pid, 0)
+            return True
+        except (OSError, ValueError, FileNotFoundError):
+            # Process doesn't exist or PID file is corrupt/stale
+            return False
+
+    def start(self):
+        """Thread-safe start method."""
+        with self.lock:
+            if self.is_running():
+                logging.info("DaemonManager: Daemon is already running.")
+                return True
+
+            try:
+                # Clean up stale PID file if it exists but process is dead
+                if os.path.exists(self.pid_file):
+                    os.remove(self.pid_file)
+
+                logging.info(f"DaemonManager: Starting {self.script_path}...")
+                
+                # start_new_session=True ensures daemon survives if Flask dies
+                process = sub.Popen(
+                    ['python3', self.script_path],
+                    start_new_session=True,
+                    stdout=sub.DEVNULL, # Redirect output to avoid buffer filling
+                    stderr=sub.DEVNULL
+                )
+
+                # Write PID immediately
+                with open(self.pid_file, 'w') as f:
+                    f.write(str(process.pid))
+                
+                logging.info(f"DaemonManager: Started with PID {process.pid}")
+                return True
+            except Exception as e:
+                logging.error(f"DaemonManager: Failed to start: {e}")
+                return False
+
+    def stop(self):
+        """Thread-safe stop method."""
+        with self.lock:
+            if not self.is_running():
+                logging.info("DaemonManager: Daemon is not running.")
+                return True
+
+            try:
+                with open(self.pid_file, 'r') as f:
+                    pid = int(f.read().strip())
+
+                os.kill(pid, signal.SIGTERM)
+                logging.info(f"DaemonManager: Sent SIGTERM to PID {pid}")
+                
+                # Wait a moment for cleanup, then remove PID file
+                # (Daemon should remove it, but we ensure it here just in case)
+                if os.path.exists(self.pid_file):
+                    os.remove(self.pid_file)
+                return True
+            except Exception as e:
+                logging.error(f"DaemonManager: Failed to stop: {e}")
+                return False
+            
 
 if __name__ == '__main__':
     backup_service = BackupService()

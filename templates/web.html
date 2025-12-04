@@ -6,8 +6,7 @@
     <link rel="icon" type="image/png" href="/static/data/icons/io.github.geovanejefferson.timemachine.png">
     <title>Time Machine - Real-Time Local Backups</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.0.1/diff.min.js"></script> -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 
@@ -17,17 +16,17 @@
         <div class="p-4 flex items-center justify-between border-b border-gray-200" style="padding-bottom: 10px;">
             <div class="flex items-center">
                 <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold">
-                    <i class="fas fa-shield-alt"></i>
+                    <i class="bi bi-safe-fill"></i>
                 </div>
                 <span class="ml-2 font-bold text-gray-800">Time Machine</span>
                 <!-- PRO Badge Addition -->
                 <span id="pro-badge" class="ml-4 text-xs font-bold bg-yellow-100 text-yellow-800 rounded-full shadow-sm" style="display: flex; justify-content: center; align-items: center; padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 4px;">
-                    <i class="fas fa-crown text-yellow-600 mr-1"></i> FREE
+                    <i class="bi bi-person-fill text-yellow-600 mr-1"></i> FREE
                 </span>
                 <!-- End PRO Badge Addition -->
             </div>
             <button id="hamburgerBtn" class="lg:hidden text-gray-500 hover:text-gray-700">
-                <i class="fas fa-bars"></i>
+                <i class="bi bi-bars"></i>
             </button>
         </div>
         
@@ -35,23 +34,23 @@
             <!-- Top Left Button -->
             <nav class="p-4 sidebar-content">
                 <div id="overviewNav" data-section="overview" class="nav-item active flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-indigo-600 rounded-lg transition-colors">
-                    <i class="fas fa-home mr-3 text-white"></i>
+                    <i class="bi bi-house-fill mr-3 text-white"></i>
                     <span class="text-white">Overview</span>
                 </div>
                 <div id="filesNav" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg transition-colors" data-section="files">
-                    <i class="fas fa-file-alt mr-3 text-gray-600"></i>
+                    <i class="bi bi-file-earmark-text-fill mr-3 text-gray-600"></i>
                     <span class="text-gray-600">Files</span>
                 </div>
                 <div id="devicesNav" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg transition-colors" data-section="devices">
-                    <i class="fas fa-clock mr-3 text-gray-600"></i>
+                    <i class="bi bi-clock-fill mr-3 text-gray-600"></i>
                     <span class="text-gray-600">Devices</span>
                 </div>
                 <div id="settingsNav" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg transition-colors" data-section="settings">
-                    <i class="fas fa-cog mr-3 text-gray-600"></i>
+                    <i class="bi bi-gear-fill mr-3 text-gray-600"></i>
                     <span class="text-gray-600">Settings</span>
                 </div>
                 <div id="logsNav" class="nav-item flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg transition-colors" data-section="logs">
-                    <i class="fas fa-scroll mr-3 text-gray-600"></i>
+                    <i class="bi bi-envelope-paper-fill mr-3 text-gray-600"></i>
                     <span class="text-gray-600">Logs</span>
                 </div>
             </nav>
@@ -62,7 +61,7 @@
                 <div class="space-y-2">
                     <div class="flex items-center p-2 rounded-lg hover:bg-gray-100 cursor-pointer">
                         <div class="drive-icon bg-blue-100 text-blue-600">
-                            <i class="fas fa-hdd"></i>
+                            <i class="bi bi-hdd"></i>
                         </div>
                         <div class="ml-3">
                             <div class="text-sm font-medium">System (C:)</div>
@@ -71,7 +70,7 @@
                     </div>
                     <div class="flex items-center p-2 rounded-lg hover:bg-gray-100 cursor-pointer">
                         <div class="drive-icon bg-green-100 text-green-600">
-                            <i class="fas fa-hdd"></i>
+                            <i class="bi bi-hdd"></i>
                         </div>
                         <div class="ml-3">
                             <div class="text-sm font-medium">Data (D:)</div>
@@ -80,7 +79,7 @@
                     </div>
                     <div class="flex items-center p-2 rounded-lg hover:bg-gray-100 cursor-pointer">
                         <div class="drive-icon bg-purple-100 text-purple-600">
-                            <i class="fas fa-usb"></i>
+                            <i class="bi bi-usb"></i>
                         </div>
                         <div class="ml-3">
                             <div class="text-sm font-medium">Backup (E:)</div>
@@ -96,7 +95,7 @@
             <div class="bg-indigo-50 border border-indigo-200 p-3 rounded-xl text-center shadow-inner">
                 <p class="text-sm font-semibold text-indigo-700 mb-2">Unlock Cloud Backups &amp; Encryption</p>
                 <a id="ctaButton" href="#" class="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-bold rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 transition duration-150 ease-in-out shadow-lg">
-                    <i class="fas fa-lock mr-2"></i> Get Pro Access ($19)
+                    <i class="bi bi-lock-fill mr-2"></i> Get Pro Access ($19)
                 </a>
                 <p class="text-xs text-indigo-500 mt-1">One-Time Purchase.</p>
             </div>
@@ -107,12 +106,12 @@
     <div id="pro-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 opacity-0 pointer-events-none transition-opacity duration-300">
         <div id="modal-content-container" class="max-w-xl w-full bg-white rounded-2xl p-8 md:p-12 mx-4 relative pro-card-shadow transform scale-95 transition-transform duration-300">
             <button id="close-modal-btn" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 focus:outline-none">
-                <i class="fas fa-times text-xl"></i>
+                <i class="bi bi-times text-xl"></i>
             </button>
 
             <div class="flex flex-col items-center mb-10">
                 <div class="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold text-2xl mb-3">
-                    <i class="fas fa-crown"></i>
+                    <i class="bi bi-person-fill"></i>
                 </div>
                 <h1 class="text-3xl font-extrabold text-gray-900 text-center">
                     Upgrade to <span class="text-indigo-600">Time Machine Pro</span>
@@ -124,7 +123,7 @@
 
             <div class="bg-indigo-50 border border-indigo-200 p-4 rounded-xl text-center shadow-inner mb-6">
                 <a href="#" class="w-full inline-flex items-center justify-center px-8 py-3 text-lg font-bold rounded-xl text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 transition duration-300 ease-in-out shadow-lg hover:shadow-xl transform hover:scale-105">
-                    <i class="fas fa-rocket mr-2"></i>
+                    <i class="bi bi-rocket-takeoff-fill mr-2"></i>
                     Get Lifetime Pro Access for $19
                 </a>
                 <p class="text-sm text-indigo-500 mt-2 font-medium">
@@ -136,7 +135,7 @@
                 <h2 class="text-xl font-semibold text-gray-800 border-b pb-2 mb-4">What You Get with Pro:</h2>
                 
                 <div class="flex items-start">
-                    <i class="fas fa-cloud-upload-alt text-indigo-500 mt-1 mr-3 text-lg"></i>
+                    <i class="bi bi-cloud-upload-fill text-indigo-500 mt-1 mr-3 text-lg"></i>
                     <div>
                         <p class="font-medium text-gray-700">Cloud Backups</p>
                         <p class="text-sm text-gray-500">Securely back up your data to popular cloud services (Dropbox, Google Drive, S3, etc.).</p>
@@ -144,7 +143,7 @@
                 </div>
 
                 <div class="flex items-start">
-                    <i class="fas fa-shield-alt text-indigo-500 mt-1 mr-3 text-lg"></i>
+                    <i class="bi bi-shield-fill text-indigo-500 mt-1 mr-3 text-lg"></i>
                     <div>
                         <p class="font-medium text-gray-700">Military-Grade Encryption (AES-256)</p>
                         <p class="text-sm text-gray-500">Ensure your data is protected both at rest and in transit with advanced security.</p>
@@ -152,7 +151,7 @@
                 </div>
 
                 <div class="flex items-start">
-                    <i class="fas fa-history text-indigo-500 mt-1 mr-3 text-lg"></i>
+                    <i class="bi bi-clock-fill text-indigo-500 mt-1 mr-3 text-lg"></i>
                     <div>
                         <p class="font-medium text-gray-700">Advanced Version History</p>
                         <p class="text-sm text-gray-500">Keep unlimited file versions, not just recent ones, for comprehensive protection against ransomware and accidental deletions.</p>
@@ -160,7 +159,7 @@
                 </div>
 
                 <div class="flex items-start">
-                    <i class="fas fa-tachometer-alt text-indigo-500 mt-1 mr-3 text-lg"></i>
+                    <i class="bi bi-speedometer text-indigo-500 mt-1 mr-3 text-lg"></i>
                     <div>
                         <p class="font-medium text-gray-700">Faster Performance</p>
                         <p class="text-sm text-gray-500">Benefit from optimized backup processes.</p>
@@ -168,7 +167,7 @@
                 </div>
 
                 <div class="flex items-start">
-                    <i class="fas fa-heart text-indigo-500 mt-1 mr-3 text-lg"></i>
+                    <i class="bi bi-heart-fill text-indigo-500 mt-1 mr-3 text-lg"></i>
                     <div>
                         <p class="font-medium text-gray-700">Support Development</p>
                         <p class="text-sm text-gray-500">Your purchase directly supports the continuous development and improvement of Time Machine.</p>
@@ -191,7 +190,7 @@
                 <div class="flex items-center">
                     <div id="mainTitle" class="text-xl font-semibold text-gray-800">Overview</div>
                     <div class="ml-4 text-sm text-gray-600">
-                        <i id="realTimeStatusLabel" class="fas fa-circle text-red-500 mr-1 text-xs"></i>
+                        <i id="realTimeStatusLabel" class="bi bi-circle text-red-500 mr-1 text-xs"></i>
                         <span>Real-time backup status</span>
                     </div>
                 </div>
@@ -199,7 +198,7 @@
                 <div class="flex items-center">
                     <div class="relative mr-4 w-80">
                         <input id="searchInput" type="text" placeholder="Start typing to search for files" class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-full">
-                        <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
+                        <i class="bi bi-search absolute left-3 top-2 text-gray-400"></i>
                     </div>
                 </div>
             </div>
@@ -227,7 +226,7 @@
                     <div class="bg-white rounded-lg shadow-sm p-4">
                         <div class="flex items-center justify-between">
                             <div class="bg-blue-100 text-blue-600 p-4 rounded-lg">
-                                <i class="fas fa-image"></i>
+                                <i class="bi bi-image-fill"></i>
                             </div>
                             <div>
                                 <div class="text-sm text-gray-500">Images</div>
@@ -241,7 +240,7 @@
                     <div class="bg-white rounded-lg shadow-sm p-4">
                         <div class="flex items-center justify-between">
                             <div class="bg-red-100 text-red-600 p-4 rounded-lg">
-                                <i class="fas fa-video"></i>
+                                <i class="bi bi-camera-video-fill"></i>
                             </div>
                             <div>
                                 <div class="text-sm text-gray-500">Videos</div>
@@ -255,7 +254,7 @@
                     <div class="bg-white rounded-lg shadow-sm p-4">
                         <div class="flex items-center justify-between">
                             <div class="bg-green-100 text-green-600 p-4 rounded-lg">
-                                <i class="fas fa-file-alt"></i>
+                                <i class="bi bi-file-earmark-text-fill"></i>
                             </div>
                             <div>
                                 <div class="text-sm text-gray-500">Documents</div>
@@ -269,7 +268,7 @@
                     <div class="bg-white rounded-lg shadow-sm p-4">
                         <div class="flex items-center justify-between">
                             <div class="bg-purple-100 text-purple-600 p-4 rounded-lg">
-                                <i class="fas fa-file"></i>
+                                <i class="bi bi-file-earmark-fill"></i>
                             </div>
                             <div>
                                 <div class="text-sm text-gray-500">Others</div>
@@ -287,7 +286,7 @@
                         <div class="md:w-1/3 flex flex-col">
                             <div class="flex items-center gap-3 mb-3">
                                 <div class="bg-indigo-100 text-indigo-600 p-3 rounded-lg">
-                                    <i class="fas fa-solid fa-hard-drive text-xl"></i>
+                                    <i class="bi bi-device-hdd-fill text-xl"></i>
                                 </div>
                                 <div>
                                     <div id="devicesModel" class="font-semibold">N/A</div>
@@ -404,11 +403,11 @@
                         <div class="flex flex-col overflow-hidden">
                             <div class="flex justify-between items-center mb-4 flex-shrink-0">
                                 <h3 class="font-medium text-sm flex items-center">
-                                    <i class="fas fa-clock text-gray-500 mr-2"></i>
+                                    <i class="bi bi-clock-fill text-gray-500 mr-2"></i>
                                     <span id="currentVersionTime">Current File (Latest Version)</span>
                                 </h3>
                                 <!-- <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 flex items-center">
-                                    <i class="fas fa-check-circle mr-1.5"></i> Current Version
+                                    <i class="bi bi-check-circle mr-1.5"></i> Current Version
                                 </span> -->
                             </div>
 
@@ -425,7 +424,7 @@
                             
                             <div class="flex justify-between items-center mb-4 flex-shrink-0">
                                 <h3 class="font-medium text-sm flex items-center">
-                                    <i class="fas fa-clock text-gray-500 mr-2"></i>
+                                    <i class="bi bi-clock-fill text-gray-500 mr-2"></i>
                                     <span id="backupVersionTime">Backup Version</span>
                                 </h3>
                                 
@@ -433,13 +432,13 @@
                                 
                                 <div id="backupVersionActions" class="flex items-center gap-2">
                                     <button id="restoreFileBtn" data-action="restore" class="action-btn flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-50">
-                                        <i class="fas fa-history text-red-500"></i> Restore File
+                                        <i class="bi bi-download text-red-500"></i> Restore File
                                     </button>
                                     <button id="openFileBtn" data-action="open" class="action-btn flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-50">
-                                        <i class="fas fa-external-link-alt text-blue-500"></i> Open
+                                        <i class="bi bi-file-earmark-check-fill text-blue-500"></i> Open
                                     </button>
                                     <button id="openLocationBtn" data-action="open-location" class="action-btn flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-50">
-                                        <i class="fas fa-folder-open text-blue-500"></i> Open Location
+                                        <i class="bi bi-folder-fill text-blue-500"></i> Open Location
                                     </button>
                                 </div>
                             </div> 
@@ -460,7 +459,7 @@
                     <div class="flex items-center justify-between mb-4">
                         <div class="text-xl font-semibold">Available Backup Devices</div>
                         <button id="refreshDevicesBtn" class="text-indigo-600 hover:text-indigo-800 flex items-center">
-                            <i class="fas fa-sync-alt mr-2"></i> Refresh Devices
+                            <i class="bi bi-arrow-clockwise mr-2"></i> Refresh Devices
                         </button>
                     </div>
                     
@@ -488,7 +487,7 @@
                 <div class="bg-white rounded-lg shadow-sm p-4 mb-6">
                     <!-- <div class="font-medium text-lg mb-6">Application Settings</div> -->
                     <h2 class="text-xl font-semibold text-gray-700 mb-4 flex items-center">
-                        <i class="fas fa-folder-tree mr-3 text-indigo-500"></i> Application Settings
+                        <i class="bi bi-list-columns mr-3 text-indigo-500"></i> Application Settings
                     </h2>
                     <div class="space-y-6">
                         <div>
@@ -497,7 +496,7 @@
                                 <div class="flex items-center justify-between">
                                     <div>
                                         <div class="text-sm font-medium">Automatically Backup</div>
-                                        <div class="text-sm text-gray-500">Real-time backup of files and launch DataGuardian when system starts</div>
+                                        <div class="text-sm text-gray-500">Real-time backup of files and launch Time Machine when system starts</div>
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer">
                                         <input type="checkbox" id="realTimeCheckbox" value="" class="sr-only peer" checked>
@@ -551,10 +550,10 @@
                     <div class="p-4">
                         <div id="watchedFoldersToggle" class="flex justify-between items-center cursor-pointer">
                             <h2 class="text-xl font-semibold text-gray-700 mb-0 flex items-center">
-                                <i class="far fa-eye mr-3 text-indigo-500"></i> Watched Folders
+                                <i class="bi bi-eye-fill mr-3 text-indigo-500"></i> Watched Folders
                             </h2>
                             <button class="text-gray-500 hover:text-gray-700">
-                                <i id="watchedFoldersToggleIcon" class="fas fa-chevron-up transition-transform"></i>
+                                <i id="watchedFoldersToggleIcon" class="bi bi-chevron-up transition-transform"></i>
                             </button>
                         </div>
                         
@@ -589,7 +588,7 @@
                 <!-- Retention Policy -->
                 <!-- <div class="bg-white rounded-lg shadow-sm p-4 mb-6">
                     <h2 class="text-xl font-semibold text-gray-700 mb-4 flex items-center">
-                        <i class="fas fa-calendar-check mr-3 text-indigo-500"></i> Version Retention Policy
+                        <i class="bi bi-calendar-check mr-3 text-indigo-500"></i> Version Retention Policy
                     </h2>
                     <p class="text-sm text-gray-600 mb-4">How long should Time Machine keep old file versions?</p>
                     
@@ -608,13 +607,13 @@
                         <div class="text-xl font-semibold">Backup Logs</div>
                         <div class="flex items-center">
                             <button id="refreshLogsBtn" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium mr-4">
-                                <i class="fas fa-sync-alt mr-1"></i> Refresh
+                                <i class="bi bi-arrow-clockwise mr-1"></i> Refresh
                             </button>
                             <button id="exportLogsBtn" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium mr-4">
-                                <i class="fas fa-download mr-1"></i> Export
+                                <i class="bi bi-file-arrow-down-fill mr-1"></i> Export
                             </button>
                             <button id="clearLogsBtn" class="text-red-600 hover:text-red-800 text-sm font-medium">
-                                <i class="fas fa-trash-alt mr-1"></i> Clear
+                                <i class="bi bi-trash-fill mr-1"></i> Clear all
                             </button>
                         </div>
                     </div>
@@ -655,10 +654,16 @@
 
         <!-- Recent Activity Section -->
         <div class="flex-1 overflow-y-auto p-4">
-            <div class="font-semibold mb-3">Recent Activity</div>
-            
+            <div class="font-semibold mb-3 flex justify-between items-center">
+                <span>Recent Activity</span>
+                <button id="clearActivityBtn" class="text-xs text-red-600 hover:text-red-800 font-medium">
+                    <i class="bi bi-trash-fill mr-1"></i> Clear All
+                </button>
+            </div>
+
             <!-- Activity Feed Container -->
             <div class="space-y-4" id="activityFeed">
+                <div class="text-gray-500 py-4 text-center">No recent activities</div>
                 <!-- Activities will automatically be added down her -->
             </div>
         </div>
@@ -670,12 +675,12 @@
                     <!-- Header with close button -->
                     <div class="border-b border-gray-200 p-4 flex justify-between items-center">
                         <h2 class="text-xl font-semibold text-gray-800">
-                            <i class="fas fa-history mr-2 text-indigo-500"></i>
+                            <i class="bi bi-download mr-2 text-indigo-500"></i>
                             <span id="diffModalTitle">File Time Machine</span>
                         </h2>
                         <div class="flex items-center space-x-2">
                             <button id="closeDiffModal" class="text-gray-500 hover:text-gray-700">
-                                <i class="fas fa-times text-lg"></i>
+                                <i class="bi bi-times text-lg"></i>
                             </button>
                         </div>
                     </div>
@@ -689,7 +694,7 @@
                             </div>
                             <div class="flex items-center space-x-2">
                                 <button id="ignoreWhitespaceToggle" class="text-xs bg-gray-100 px-2 py-1 rounded flex items-center">
-                                    <i class="fas fa-code mr-1"></i> Ignore Formatting
+                                    <i class="bi bi-code mr-1"></i> Ignore Formatting
                                 </button>
                             </div>
                         </div>
@@ -704,7 +709,7 @@
                             <!-- Main slider -->
                             <div class="flex items-center">
                                 <button id="prevVersionBtn" class="mr-2 text-gray-500 hover:text-gray-700">
-                                    <i class="fas fa-chevron-left"></i>
+                                    <i class="bi bi-chevron-left"></i>
                                 </button>
                                 <div class="flex-1 relative">
                                     <input 
@@ -718,7 +723,7 @@
                                     >
                                 </div>
                                 <button id="nextVersionBtn" class="ml-2 text-gray-500 hover:text-gray-700">
-                                    <i class="fas fa-chevron-right"></i>
+                                    <i class="bi bi-chevron-right"></i>
                                 </button>
                             </div>
                         </div>
@@ -730,7 +735,7 @@
                         <div class="w-1/2 border-r border-gray-200 flex flex-col">
                             <div class="border-b border-gray-200 p-3 bg-gray-50 flex justify-between items-center">
                                 <h3 class="font-medium text-sm flex items-center">
-                                    <i class="fas fa-file-alt text-gray-500 mr-2"></i>
+                                    <i class="bi bi-file-earmark-text-fill text-gray-500 mr-2"></i>
                                     <span id="currentFileName">current_file.txt</span>
                                 </h3>
                                 <span class="text-xs text-gray-500">Current version</span>
@@ -747,12 +752,12 @@
                         <div class="w-1/2 flex flex-col">
                             <div class="border-b border-gray-200 p-3 bg-gray-50 flex justify-between items-center">
                                 <h3 class="font-medium text-sm flex items-center">
-                                    <i class="fas fa-clock text-gray-500 mr-2"></i>
+                                    <i class="bi bi-clock-fill text-gray-500 mr-2"></i>
                                     <span>Backup Version</span>
                                 </h3>
                                 <div class="flex items-center space-x-2">
                                     <button id="restoreFileBtn" class="text-xs bg-indigo-50 text-indigo-600 px-3 py-1 rounded hover:bg-indigo-100 transition-colors">
-                                        <i class="fas fa-rotate-left mr-1"></i> Restore File
+                                        <i class="bi bi-rotate-left mr-1"></i> Restore File
                                     </button>
                                 </div>
                             </div>

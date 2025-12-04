@@ -70,6 +70,8 @@ class SERVER:
         self.LOG_FILE_PATH = os.path.expanduser(f"~/.{self.APP_NAME_CLOSE_LOWER}.log")
         self.SOCKET_PATH = f"/tmp/{self.APP_NAME_CLOSE_LOWER}_socket.sock"
         
+        self.DAEMON_PID_LOCATION: str = os.path.expanduser(f"~/.{self.APP_NAME_CLOSE_LOWER}.pid")
+        
         # Get the directory where this script (server.py) is located
         script_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(os.path.dirname(script_dir))  # Go up one level to the project root, then to config folder
@@ -85,9 +87,6 @@ class SERVER:
         #     self._create_default_config()
         self.CONF.read(self.CONF_PATH)
         
-        print(f"Looking for config at: {self.CONF_PATH}")
-        print(f"Config file exists: {os.path.exists(self.CONF_PATH)}")
-    
         # Read configuration files
         self.DRIVER_NAME = self.get_database_value('DEVICE_INFO', 'name')
         self.DRIVER_PATH = self.get_database_value('DEVICE_INFO', 'path')
@@ -108,7 +107,6 @@ class SERVER:
         # Summary file paths
         self.SUMMARY_SCRIPT_FILE: str = "generate_backup_summary.py"
         self.SUMMARY_FILENAME: str = ".backup_summary.json"
-        self.SUMMARY_FILE_PATH: str = os.path.join(self.devices_path(), self.SUMMARY_FILENAME)
         
         # In-memory state
         self.backup_status = "Idle"
@@ -118,18 +116,23 @@ class SERVER:
 
     def _necessary_directories(self):
         """Ensure necessary directories exist."""
-        # Create base folder
-        base_folder = self.devices_path()
-        os.makedirs(base_folder, exist_ok=True)
+        try:
+            # Create base folder
+            base_folder = self.devices_path()
+            os.makedirs(base_folder, exist_ok=True)
 
-        # Create backup folder
-        backup_folder = self.app_backup_dir()
-        os.makedirs(backup_folder, exist_ok=True)
+            # Create backup folder
+            backup_folder = self.app_backup_dir()
+            os.makedirs(backup_folder, exist_ok=True)
 
-        # Create main backup folder
-        main_backup_folder = self.app_main_backup_dir()
-        os.makedirs(main_backup_folder, exist_ok=True)
-
+            # Create main backup folder
+            main_backup_folder = self.app_main_backup_dir()
+            os.makedirs(main_backup_folder, exist_ok=True)
+        except PermissionError as e:  # Probabily backup device is not connected
+            pass
+        except Exception as e:
+            logging.error(f"Error creating directories: {e}")
+         
     def _create_default_config(self):
         """Create default configuration file."""
         config_dir = os.path.dirname(self.CONF_PATH)
@@ -177,7 +180,9 @@ class SERVER:
 
     def app_main_backup_dir(self):
         """Get main backup path."""
-        return f"{self.app_backup_dir()}/{self.MAIN_BACKUP_LOCATION}"
+        # return f"{self.app_backup_dir()}/{self.MAIN_BACKUP_LOCATION}"
+        self.CONF.read(self.CONF_PATH)
+        return os.path.join(self.CONF.get('DEVICE_INFO', 'path'), f'{self.APP_NAME_CLOSE_LOWER}', f'{self.BACKUPS_LOCATION_DIR_NAME}', f'{self.MAIN_BACKUP_LOCATION}')
 
     def app_incremental_backup_dir(self) -> str:
         """Get current incremental backup path."""
@@ -192,8 +197,9 @@ class SERVER:
         device_info_path = self.get_database_value('DEVICE_INFO', 'path')
         if device_info_path:
             return os.path.join(device_info_path, self.APP_NAME_CLOSE_LOWER)
+        else:
+            return ""
 
-        """/media/geovane/usb80GB"""
     def devices_filesystem(self) -> str:
         """Get devices filesystem type."""
         return self.get_database_value('DEVICE_INFO', 'filesystem')
@@ -329,6 +335,10 @@ class SERVER:
                     pass
             return False
         
+    def get_summary_file_path(self):
+        """Get the current summary file path based on current device"""
+        return os.path.join(self.devices_path(), self.SUMMARY_FILENAME)
+
     # =============================================================================
     # CALCULATIONS
     # =============================================================================        
@@ -355,6 +365,52 @@ class SERVER:
             return not os.path.exists(self.app_main_backup_dir())
         except Exception:
             return True
+        
+    # =============================================================================
+    # RESTORATION
+    # ============================================================================= 
+    def _get_timestamp(self) -> str:
+        """Get formatted minutes like '19 minutes ago'."""
+        current_minutes = int(time.time() / 60)
+        return f"{current_minutes} minutes ago"
+    
+    async def send_message(self, message_data: dict) -> bool:
+        """  
+        Asynchronously send a JSON message to the UI via UNIX socket.
+        """
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.settimeout(self.timeout)
+                sock.connect(self.socket_path)
+                sock.sendall((json.dumps(message_data) + "\n").encode("utf-8"))
+            return True
+        except Exception as e:
+            logging.debug(f"[MessageSender] Failed to send message: {e}")
+            return False
+        
+    async def send_restoring_file(self, description: str, processed: int = 0, progress: int = 0) -> bool:
+        """Send sleeping files activity."""
+        message = {
+            "type": "restoring",
+            "title": "Restoring file...",
+            "description": description,
+            "progress": "progress",
+            "processed": "processed",
+            "timestamp": self._get_timestamp()
+        }
+        return await self.send_message(message)
+    
+    def send_restore_notification(self, description: str, destination_path: str) -> bool:
+        """Send file restore completed activity."""
+        message = {
+            "type": "restore",
+            "title": "File Restored", 
+            "description": description,
+            "destination": destination_path,
+            "timestamp": datetime.now().isoformat()
+        }
+        return self.send_message(message)
+
 
 if __name__ == "__main__":
     # server = SERVER()

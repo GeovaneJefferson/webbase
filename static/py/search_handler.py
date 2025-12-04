@@ -9,8 +9,7 @@ class SeachHandler:
         # VARIABLES
         ##########################################################################
         self.selected_file_path: bool = None
-        app_main_backup_dir: str = server.app_main_backup_dir()
-        self.main_files_dir: str = os.path.expanduser(app_main_backup_dir)
+        # Don't set main_files_dir here - make it dynamic
         self.location_buttons: list = []
         
         # For search
@@ -43,6 +42,12 @@ class SeachHandler:
         # Initialize with cached files if available
         self.scan_files_folder_threaded()
 
+    @property
+    def main_files_dir(self):
+        """Dynamic property that always gets the current backup location"""
+        app_main_backup_dir = server.app_main_backup_dir()
+        return os.path.expanduser(app_main_backup_dir)
+
     def get_files(self):
         """Get cached files or scan if cache is expired"""
         current_time = time.time()
@@ -55,18 +60,19 @@ class SeachHandler:
 
     def _scan_files(self):
         """Scan files and return a list of file dictionaries."""
-        print("Searching in:", self.main_files_dir)
-        if not os.path.exists(self.main_files_dir):
-            print(f"Documents path for scanning does not exist: {self.main_files_dir}")
+        current_main_files_dir = self.main_files_dir  # Use the dynamic property
+        print("Searching in:", current_main_files_dir)
+        if not os.path.exists(current_main_files_dir):
+            print(f"Documents path for scanning does not exist: {current_main_files_dir}")
             return []
         
         print("Caching files, Please Wait...")
 
         file_list = []
         # base_for_rel_path is the folder *containing* .main_backup, i.e., server.backup_folder_name()
-        base_for_search_display_path = os.path.dirname(self.main_files_dir) 
+        base_for_search_display_path = os.path.dirname(current_main_files_dir) 
 
-        for root, dirs, files in os.walk(self.main_files_dir):
+        for root, dirs, files in os.walk(current_main_files_dir):
             # Optionally, add logic here to exclude hidden directories or specific directories
             # dirs[:] = [d for d in dirs if not d.startswith('.')] # Example: exclude hidden dirs
             for file_name in files:
@@ -82,6 +88,11 @@ class SeachHandler:
                     "search_display_path": search_display_path
                 })
         return file_list
+    
+    def update_backup_location(self):
+        """Clear cache to force rescan of new location"""
+        print(f"SearchHandler: Clearing cache for new backup location: {self.main_files_dir}")
+        self.clear_cache()
 
     def perform_search(self, query: str):
         """Perform the search using cached files"""
@@ -193,6 +204,7 @@ class SeachHandler:
             logging.debug(f"Connection refused at {server.SOCKET_PATH}. UI likely not running.")
         except Exception as e:
             logging.warning(f"Error communicating with UI via {server.SOCKET_PATH}: {e}")
+    
 
 if __name__ == "__main__":    
     pass

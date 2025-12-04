@@ -1,0 +1,5 @@
+# Requirements
+setproctitle
+psutil
+flask
+flask_sock
